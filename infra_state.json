@@ -1,0 +1,64 @@
+{
+  "account_id": "123456789012",
+  "region": "us-east-1",
+  "timestamp": "2026-07-29T11:41:12.986070+00:00",
+  "resources": {
+    "s3_buckets": [
+      {
+        "name": "cloudsec-vulnerable-public-bucket",
+        "creation_date": null,
+        "is_public": true,
+        "acl_public": true,
+        "policy_public": false,
+        "encryption_enabled": false,
+        "arn": "arn:aws:s3:::cloudsec-vulnerable-public-bucket"
+      }
+    ],
+    "security_groups": [
+      {
+        "group_id": "sg-open-secgroup-vulnerable",
+        "group_name": "open-secgroup-vulnerable",
+        "vpc_id": "vpc-12345678",
+        "description": "Vulnerable security group open to world",
+        "inbound_rules": [
+          {
+            "protocol": "tcp",
+            "from_port": 22,
+            "to_port": 22,
+            "cidr_ip": "0.0.0.0/0"
+          },
+          {
+            "protocol": "tcp",
+            "from_port": 80,
+            "to_port": 80,
+            "cidr_ip": "0.0.0.0/0"
+          }
+        ]
+      }
+    ],
+    "iam_roles": [
+      {
+        "role_name": "CloudSecVulnerableAdminRole",
+        "role_id": null,
+        "arn": "arn:aws:iam::123456789012:role/CloudSecVulnerableAdminRole",
+        "is_admin": true,
+        "attached_policies": [
+          "AdministratorAccess"
+        ],
+        "inline_policies": []
+      }
+    ],
+    "iam_policies": [],
+    "rds_instances": [
+      {
+        "db_instance_identifier": "vulnerable-prod-db",
+        "engine": "postgres",
+        "db_instance_class": "db.t3.micro",
+        "publicly_accessible": true,
+        "storage_encrypted": false,
+        "status": "available"
+      }
+    ],
+    "ec2_instances": []
+  }
+}

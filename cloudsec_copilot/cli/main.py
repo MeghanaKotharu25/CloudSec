@@ -9,6 +9,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from cloudsec_copilot.discovery.collector import DiscoveryCollector
+
 console = Console()
 
 @click.group()
@@ -20,17 +22,26 @@ def cli():
 @cli.command()
 @click.option("--discover-only", is_flag=True, help="Run infrastructure discovery only without scanning rules.")
 @click.option("--endpoint-url", default=None, help="Custom AWS/LocalStack API endpoint URL.")
-def scan(discover_only, endpoint_url):
+@click.option("--output", default="infra_state.json", help="Output file for discovery snapshot.")
+def scan(discover_only, endpoint_url, output):
     """Run cloud infrastructure discovery, vulnerability scan, and attack graph risk analysis."""
     console.print(Panel.fit("[bold blue]CloudSec-Copilot[/bold blue] - Cloud Security Posture Scan", border_style="blue"))
     
+    collector = DiscoveryCollector(endpoint_url=endpoint_url)
+
     if discover_only:
-        console.print("[yellow][*] Running Discovery Engine only...[/yellow]")
-        # Placeholder for Phase 4 discovery invocation
-        console.print("[green][+] Infrastructure inventory captured successfully -> infra_state.json[/green]")
+        console.print("[yellow][*] Running Cloud Discovery Engine...[/yellow]")
+        snapshot = collector.export_snapshot(output_path=output)
+        console.print(f"[green][+] Infrastructure inventory captured successfully -> {output}[/green]")
+        console.print(f"    S3 Buckets: {len(snapshot.resources.s3_buckets)}")
+        console.print(f"    Security Groups: {len(snapshot.resources.security_groups)}")
+        console.print(f"    IAM Roles: {len(snapshot.resources.iam_roles)}")
+        console.print(f"    RDS Instances: {len(snapshot.resources.rds_instances)}")
         return
         
     console.print("[bold yellow][*] Phase 1: Capturing Infrastructure Snapshot...[/bold yellow]")
+    snapshot = collector.collect_all()
+    
     console.print("[bold yellow][*] Phase 2: Running Deterministic Security Rules...[/bold yellow]")
     console.print("[bold yellow][*] Phase 3: Constructing Attack Dependency Graph...[/bold yellow]")
     console.print("[bold yellow][*] Phase 4: Calculating Graph-Based Risk Scores...[/bold yellow]")
