@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InfrastructureState",
+  "description": "JSON schema representing normalized cloud infrastructure snapshot",
+  "type": "object",
+  "required": ["account_id", "region", "timestamp", "resources"],
+  "properties": {
+    "account_id": {
+      "type": "string",
+      "example": "123456789012"
+    },
+    "region": {
+      "type": "string",
+      "example": "us-east-1"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resources": {
+      "type": "object",
+      "required": ["s3_buckets", "security_groups", "iam_roles", "rds_instances", "ec2_instances"],
+      "properties": {
+        "s3_buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "is_public", "encryption_enabled"],
+            "properties": {
+              "name": { "type": "string" },
+              "is_public": { "type": "boolean" },
+              "acl_public": { "type": "boolean" },
+              "policy_public": { "type": "boolean" },
+              "encryption_enabled": { "type": "boolean" },
+              "arn": { "type": "string" }
+            }
+          }
+        },
+        "security_groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["group_id", "group_name", "inbound_rules"],
+            "properties": {
+              "group_id": { "type": "string" },
+              "group_name": { "type": "string" },
+              "vpc_id": { "type": "string" },
+              "inbound_rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["protocol", "from_port", "to_port", "cidr_ip"],
+                  "properties": {
+                    "protocol": { "type": "string" },
+                    "from_port": { "type": "integer" },
+                    "to_port": { "type": "integer" },
+                    "cidr_ip": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "iam_roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role_name", "arn"],
+            "properties": {
+              "role_name": { "type": "string" },
+              "arn": { "type": "string" },
+              "is_admin": { "type": "boolean" },
+              "attached_policies": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "rds_instances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["db_instance_identifier", "publicly_accessible"],
+            "properties": {
+              "db_instance_identifier": { "type": "string" },
+              "engine": { "type": "string" },
+              "publicly_accessible": { "type": "boolean" },
+              "storage_encrypted": { "type": "boolean" }
+            }
+          }
+        },
+        "ec2_instances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["instance_id", "security_groups"],
+            "properties": {
+              "instance_id": { "type": "string" },
+              "public_ip": { "type": "string" },
+              "security_groups": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "iam_instance_profile": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

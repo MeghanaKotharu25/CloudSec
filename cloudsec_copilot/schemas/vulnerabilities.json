@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VulnerabilitiesReport",
+  "description": "JSON schema representing rule-based scan findings",
+  "type": "object",
+  "required": ["scan_id", "timestamp", "findings"],
+  "properties": {
+    "scan_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rule_id", "title", "severity", "resource_id", "resource_type"],
+        "properties": {
+          "id": { "type": "string", "example": "VULN-001" },
+          "rule_id": { "type": "string", "example": "RULE-S3-PUBLIC" },
+          "title": { "type": "string" },
+          "severity": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] },
+          "resource_id": { "type": "string" },
+          "resource_type": { "type": "string" },
+          "region": { "type": "string" },
+          "details": { "type": "object" },
+          "remediation_hint": { "type": "string" }
+        }
+      }
+    }
+  }
+}

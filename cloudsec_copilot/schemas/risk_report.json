@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RiskReport",
+  "description": "JSON schema representing attack graph risk analysis and prioritization",
+  "type": "object",
+  "required": ["overall_risk_score", "attack_graph_summary", "prioritized_findings"],
+  "properties": {
+    "overall_risk_score": { "type": "number", "minimum": 0.0, "maximum": 10.0 },
+    "attack_graph_summary": {
+      "type": "object",
+      "required": ["total_nodes", "total_edges", "entry_points", "critical_assets"],
+      "properties": {
+        "total_nodes": { "type": "integer" },
+        "total_edges": { "type": "integer" },
+        "entry_points": { "type": "array", "items": { "type": "string" } },
+        "critical_assets": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "prioritized_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["vuln_id", "composite_score", "blast_radius", "attack_paths"],
+        "properties": {
+          "vuln_id": { "type": "string" },
+          "composite_score": { "type": "number" },
+          "blast_radius": { "type": "array", "items": { "type": "string" } },
+          "attack_paths": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "priority": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] }
+        }
+      }
+    }
+  }
+}

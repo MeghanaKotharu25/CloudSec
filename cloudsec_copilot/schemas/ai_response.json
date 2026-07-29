@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIResponse",
+  "description": "JSON schema for Agentic AI explanations and generated remediation plans",
+  "type": "object",
+  "required": ["vuln_id", "risk_explanation", "business_impact", "attack_path_summary", "remediation_plan"],
+  "properties": {
+    "vuln_id": { "type": "string" },
+    "risk_explanation": { "type": "string" },
+    "business_impact": { "type": "string" },
+    "attack_path_summary": { "type": "string" },
+    "remediation_plan": {
+      "type": "object",
+      "required": ["description", "cli_commands", "boto3_actions", "rollback_guidance"],
+      "properties": {
+        "description": { "type": "string" },
+        "cli_commands": { "type": "array", "items": { "type": "string" } },
+        "boto3_actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["service", "action", "params"],
+            "properties": {
+              "service": { "type": "string" },
+              "action": { "type": "string" },
+              "params": { "type": "object" }
+            }
+          }
+        },
+        "rollback_guidance": { "type": "string" }
+      }
+    }
+  }
+}

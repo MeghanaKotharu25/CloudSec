@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AuditLog",
+  "description": "JSON schema for logging remediation execution and verification events",
+  "type": "object",
+  "required": ["log_id", "timestamp", "vuln_id", "action_taken", "executed_by", "user_approved", "execution_status", "verification_status"],
+  "properties": {
+    "log_id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "vuln_id": { "type": "string" },
+    "resource_id": { "type": "string" },
+    "action_taken": { "type": "string" },
+    "executed_by": { "type": "string" },
+    "user_approved": { "type": "boolean" },
+    "approval_timestamp": { "type": "string", "format": "date-time" },
+    "execution_status": { "type": "string", "enum": ["SUCCESS", "FAILED", "SKIPPED"] },
+    "verification_status": { "type": "string", "enum": ["VERIFIED_SECURE", "VERIFICATION_FAILED", "PENDING"] },
+    "error_message": { "type": "string" }
+  }
+}

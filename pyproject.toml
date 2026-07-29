@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "cloudsec-copilot"
+version = "0.1.0"
+description = "A Context-Aware Agentic Framework for Cloud Security Posture Optimization using Attack Graphs and Verified Autonomous Remediation"
+authors = ["Meghana Kotharu <meghana@example.com>"]
+readme = "README.md"
+packages = [{include = "cloudsec_copilot"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+boto3 = "^1.34.0"
+click = "^8.1.7"
+rich = "^13.7.0"
+networkx = "^3.2.1"
+pydantic = "^2.6.0"
+python-dotenv = "^1.0.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+black = "^24.1.0"
+ruff = "^0.2.0"
+mypy = "^1.8.0"
+
+[tool.poetry.scripts]
+cloudsec = "cloudsec_copilot.cli.main:cli"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
