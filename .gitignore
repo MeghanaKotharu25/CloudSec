@@ -30,3 +30,4 @@ localstack_data/
 .idea/
 *.swp
 *.swo
+audit_log.json
