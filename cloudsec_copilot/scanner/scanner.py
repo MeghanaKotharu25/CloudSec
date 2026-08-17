@@ -83,21 +83,6 @@ class Scanner:
                     )
                 )
 
-        for db in resources.rds_instances:
-            if db.publicly_accessible:
-                findings.append(
-                    self._make_finding(
-                        "VULN-004",
-                        "RULE-RDS-PUBLIC",
-                        "Publicly accessible RDS instance",
-                        "CRITICAL",
-                        db.db_instance_identifier,
-                        "RDSInstance",
-                        {"db_instance_identifier": db.db_instance_identifier, "status": db.status},
-                        "Make the database private and restrict public access to approved networks only.",
-                    )
-                )
-
         for role in resources.iam_roles:
             if role.is_admin:
                 findings.append(

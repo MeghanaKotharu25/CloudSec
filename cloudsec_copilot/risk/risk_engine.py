@@ -95,11 +95,11 @@ class RiskEngine:
             return []
 
         reachable = []
-        seen = set()
+        seen = {resource_label}
         queue = [resource_label]
         while queue:
             node = queue.pop(0)
-            for neighbor in graph.successors(node):
+            for neighbor in list(graph.successors(node)) + list(graph.predecessors(node)):
                 if neighbor not in seen:
                     seen.add(neighbor)
                     reachable.append(neighbor)

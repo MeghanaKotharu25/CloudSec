@@ -4,13 +4,41 @@ Setup script to provision vulnerable test cloud resources in LocalStack for Clou
 Target Endpoint: http://localhost:4566 (LocalStack)
 """
 
-import sys
 import os
+import sys
+import time
+from urllib import error, request
+
 import boto3
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 LOCALSTACK_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+
+
+def wait_for_localstack(timeout_seconds: int = 120, interval_seconds: int = 2):
+    """Wait until LocalStack health endpoint is ready before calling AWS APIs."""
+    health_url = f"{LOCALSTACK_ENDPOINT}/_localstack/health"
+    deadline = time.time() + timeout_seconds
+    last_error = None
+
+    while time.time() < deadline:
+        try:
+            with request.urlopen(health_url, timeout=5) as response:
+                if response.status == 200:
+                    return True
+        except (error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+        time.sleep(interval_seconds)
+
+    raise RuntimeError(
+        f"LocalStack did not become ready within {timeout_seconds}s at {health_url}. "
+        f"Last error: {last_error}"
+    )
+
 
 def get_boto3_client(service_name):
     return boto3.client(
@@ -165,6 +193,15 @@ def main():
     print(" CloudSec-Copilot: Vulnerable Lab Provisioner ")
     print(f" Target Endpoint: {LOCALSTACK_ENDPOINT}")
     print("==================================================")
+
+    try:
+        wait_for_localstack()
+        print("[+] LocalStack is ready. Provisioning vulnerable resources...")
+    except RuntimeError as exc:
+        print(f"[-] {exc}")
+        print("[!] Start LocalStack with: docker compose up -d")
+        sys.exit(1)
+
     setup_public_s3_bucket()
     print("-" * 50)
     setup_open_security_group()

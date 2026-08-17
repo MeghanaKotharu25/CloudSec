@@ -231,7 +231,11 @@ class DiscoveryCollector:
         return policies
 
     def list_rds_instances(self) -> List[RDSInstanceModel]:
-        """Collect and normalize RDS DB instances."""
+        """Collect and normalize RDS DB instances.
+
+        LocalStack Community does not implement RDS consistently, so unsupported services
+        should be skipped rather than synthesized into a fake finding.
+        """
         logger.info("Discovering RDS Instances...")
         rds_list: List[RDSInstanceModel] = []
         try:
@@ -249,17 +253,12 @@ class DiscoveryCollector:
                     )
                 )
         except Exception as e:
-            logger.warning(f"Note on RDS discovery: {e}. Utilizing normalized inventory fallback.")
-            rds_list.append(
-                RDSInstanceModel(
-                    db_instance_identifier="vulnerable-prod-db",
-                    engine="postgres",
-                    db_instance_class="db.t3.micro",
-                    publicly_accessible=True,
-                    storage_encrypted=False,
-                    status="available",
-                )
+            logger.warning(
+                "RDS discovery is unavailable in the current LocalStack environment; "
+                "skipping RDS-backed findings to avoid synthetic data. Error: %s",
+                e,
             )
+            return []
         return rds_list
 
     def list_ec2_instances(self) -> List[EC2InstanceModel]:

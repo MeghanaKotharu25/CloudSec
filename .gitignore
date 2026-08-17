@@ -19,10 +19,14 @@ localstack_data/
 
 # Environment Variables
 .env
+.env.*
+.env.local
+.envrc
 
-# IDE / Editor
+# OS / Editor
+.DS_Store
+**/.DS_Store
 .vscode/
 .idea/
 *.swp
 *.swo
-.DS_Store

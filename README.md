@@ -61,6 +61,16 @@ The tool is packaged as:
 
 ---
 
+## Demo snapshot
+
+A minimal authentic visual for the demo is included below. It shows the dependency path the scanner and graph engine use to prioritize risk.
+
+![Cloud Attack Dependency Graph](docs/assets/cloud_attack_graph.png)
+
+The project also includes a lightweight demo flow in [docs/demo_flow.md](docs/demo_flow.md) to walk through discovery, scan, fix, verify, and report.
+
+---
+
 # 3. Project Objectives
 
 - Discover cloud infrastructure resources automatically
