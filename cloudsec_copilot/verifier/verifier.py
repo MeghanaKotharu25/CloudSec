@@ -17,3 +17,12 @@ class Verifier:
             "resolved": resolved,
             "remaining": sorted(after_ids),
         }
+
+    def verify_finding_removed(self, before: List[Dict[str, Any]], after: List[Dict[str, Any]], finding_id: str) -> Dict[str, Any]:
+        comparison = self.compare(before, after)
+        return {
+            "finding_id": finding_id,
+            "status": "VERIFIED" if finding_id in comparison["resolved"] else "PENDING",
+            "resolved": comparison["resolved"],
+            "remaining": comparison["remaining"],
+        }

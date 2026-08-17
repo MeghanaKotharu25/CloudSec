@@ -124,6 +124,42 @@ class AIReasoner:
     def reason(self, finding: Dict[str, Any], score: float, graph_summary: Dict[str, Any]) -> Dict[str, Any]:
         resource = finding.get("resource_id", "unknown-resource")
         title = finding.get("title", "Unspecified cloud finding")
+        resource_type = (finding.get("resource_type") or "").lower()
+
+        if resource_type.startswith("s3"):
+            action = {
+                "action": "BLOCK_S3_PUBLIC_ACCESS",
+                "resource_type": "s3",
+                "resource_id": resource,
+                "parameters": {
+                    "block_public_acls": True,
+                    "ignore_public_acls": True,
+                    "block_public_policy": True,
+                    "restrict_public_buckets": True,
+                },
+            }
+        elif resource_type.startswith("security") or resource_type.startswith("sg"):
+            action = {
+                "action": "REVOKE_SG_INGRESS",
+                "resource_type": "security_group",
+                "resource_id": resource,
+                "parameters": {"cidr": "0.0.0.0/0", "protocol": "tcp", "ports": [22, 80]},
+            }
+        elif resource_type.startswith("iam"):
+            action = {
+                "action": "REMOVE_IAM_POLICY",
+                "resource_type": "iam",
+                "resource_id": resource,
+                "parameters": {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"},
+            }
+        else:
+            action = {
+                "action": "REVIEW_RESOURCE",
+                "resource_type": "unknown",
+                "resource_id": resource,
+                "parameters": {},
+            }
+
         prompt = (
             f"Explain a cloud security issue in concise but practical terms. "
             f"Issue: {title}. Resource: {resource}. Risk score: {score:.1f}/10. "
@@ -132,22 +168,23 @@ class AIReasoner:
 
         model_response = self._call_openrouter(prompt) or self._call_huggingface(prompt) or self._call_ollama(prompt)
         if model_response:
+            summary = model_response.split("\n")[0][:220] or f"{title} on {resource} requires immediate review."
+            impact = "The issue is evaluated through the live dependency graph and could expose connected cloud assets to misuse or data exposure."
+            steps = [
+                "Review the exact resource and network exposure in the live environment.",
+                "Apply the least-privilege fix suggested by the model and documented resource policy.",
+                "Re-scan the environment to verify the state is secure.",
+            ]
+            rollback = [
+                "Capture the original configuration before remediation.",
+                "Reapply the previous policy or ACL if the change disrupts service access.",
+            ]
             return {
-                "summary": model_response.split("\n")[0][:220] or f"{title} on {resource} requires immediate review.",
-                "impact": "The issue is evaluated through the live dependency graph and could expose connected cloud assets to misuse or data exposure.",
-                "steps": [
-                    "Review the exact resource and network exposure in the live environment.",
-                    "Apply the least-privilege fix suggested by the model and documented resource policy.",
-                    "Re-scan the environment to verify the state is secure.",
-                ],
-                "aws_cli": [
-                    f"aws --endpoint-url http://localhost:4566 configure list",
-                    "aws --endpoint-url http://localhost:4566 iam list-roles --output table",
-                ],
-                "rollback": [
-                    "Capture the original configuration before remediation.",
-                    "Reapply the previous policy or ACL if the change disrupts service access.",
-                ],
+                "summary": summary,
+                "impact": impact,
+                "steps": steps,
+                "action": action,
+                "rollback": {"action": "RESTORE_PREVIOUS_CONFIGURATION", "resource_type": action["resource_type"], "resource_id": resource},
             }
 
         summary = (
@@ -156,8 +193,8 @@ class AIReasoner:
         )
 
         impact = (
-            "This misconfiguration can allow public access, privilege abuse, or lateral movement across connected assets. "
-            "The exposure can cascade through IAM, storage, and database resources depending on the graph context."
+            "This configuration can allow public access, privilege abuse, or lateral movement across connected assets. "
+            "The exposure can cascade through IAM, storage, and network rules depending on the graph context."
         )
 
         steps = [
@@ -167,20 +204,10 @@ class AIReasoner:
             "Validate the change with a fresh security scan before closing the finding.",
         ]
 
-        aws_cli = [
-            f"aws --endpoint-url http://localhost:4566 s3api put-public-access-block --bucket {resource} --public-access-block Configuration='{{\"BlockPublicAcls\":true,\"IgnorePublicAcls\":true,\"BlockPublicPolicy\":true,\"RestrictPublicBuckets\":true}}'",
-            "aws --endpoint-url http://localhost:4566 ec2 revoke-security-group-ingress --group-id sg-example --protocol tcp --port 22 --cidr 0.0.0.0/0",
-        ]
-
-        rollback = [
-            "Capture the original ACL, policy, and ingress configuration before modification.",
-            "Reapply the backup configuration if the change causes service interruption.",
-        ]
-
         return {
             "summary": summary,
             "impact": impact,
             "steps": steps,
-            "aws_cli": aws_cli,
-            "rollback": rollback,
+            "action": action,
+            "rollback": {"action": "RESTORE_PREVIOUS_CONFIGURATION", "resource_type": action["resource_type"], "resource_id": resource},
         }

@@ -1,4 +1,5 @@
 import json
+from unittest.mock import MagicMock, patch
 
 from cloudsec_copilot.discovery.models import (
     InfrastructureStateModel,
@@ -130,10 +131,11 @@ def test_ai_reasoner_generates_structured_plan():
 
     response = AIReasoner().reason(finding, score=9.7, graph_summary={"entry_points": ["EC2:i-123"]})
 
-    assert set(response.keys()) == {"summary", "impact", "steps", "aws_cli", "rollback"}
+    assert set(response.keys()) >= {"summary", "impact", "steps", "action", "rollback"}
     assert response["summary"]
     assert response["steps"]
-    assert response["aws_cli"]
+    assert response["action"]["resource_type"] == "s3"
+    assert response["action"]["resource_id"] == "public-data-bucket"
 
 
 def test_remediation_planner_generates_valid_actions():
@@ -144,9 +146,10 @@ def test_remediation_planner_generates_valid_actions():
     )
 
     assert plan["dry_run"] is True
-    assert plan["actions"]
-    assert plan["rollback"]
-    assert "aws s3api put-public-access-block" in " ".join(plan["actions"])
+    assert plan["action"]["action"] == "BLOCK_S3_PUBLIC_ACCESS"
+    assert plan["action"]["resource_type"] == "s3"
+    assert plan["action"]["resource_id"] == "public-data-bucket"
+    assert plan["rollback"]["action"] == "RESTORE_S3_PUBLIC_ACCESS"
 
 
 def test_verifier_detects_remediation_success():
@@ -163,3 +166,24 @@ def test_verifier_detects_remediation_success():
     assert report["remediation_required"] is True
     assert report["resolved"] == ["VULN-001"]
     assert report["status"] in {"PARTIAL", "SUCCESS"}
+
+
+def test_executor_blocks_public_s3_access_and_sets_private_acl():
+    fake_s3 = MagicMock()
+
+    with patch("cloudsec_copilot.executor.executor.boto3.client", return_value=fake_s3):
+        executor = __import__("cloudsec_copilot.executor.executor", fromlist=["Executor"]).Executor()
+        result = executor._apply_action({
+            "action": "BLOCK_S3_PUBLIC_ACCESS",
+            "resource_id": "cloudsec-vulnerable-public-bucket",
+            "parameters": {
+                "block_public_acls": True,
+                "ignore_public_acls": True,
+                "block_public_policy": True,
+                "restrict_public_buckets": True,
+            },
+        })
+
+    assert result["status"] == "APPLIED"
+    fake_s3.put_public_access_block.assert_called_once()
+    fake_s3.put_bucket_acl.assert_called_once_with(Bucket="cloudsec-vulnerable-public-bucket", ACL="private")

@@ -4,51 +4,85 @@ from typing import Any, Dict, List
 
 
 class RemediationPlanner:
-    """Builds safe remediation plans and rollback actions without executing changes."""
+    """Builds validated remediation actions and rollback metadata for supported findings."""
 
     def plan(self, rule_id: str, target: str, dry_run: bool = True) -> Dict[str, Any]:
-        actions: List[str] = []
-        rollback: List[str] = []
-
         if rule_id == "RULE-S3-PUBLIC":
-            actions = [
-                f"aws s3api put-public-access-block --bucket {target} --public-access-block Configuration='{{\"BlockPublicAcls\":true,\"IgnorePublicAcls\":true,\"BlockPublicPolicy\":true,\"RestrictPublicBuckets\":true}}'",
-                f"aws s3api delete-bucket-policy --bucket {target}",
-            ]
-            rollback = [
-                f"aws s3api put-bucket-policy --bucket {target} --policy '<restore original policy>'",
-            ]
-        elif rule_id == "RULE-SG-OPEN":
-            actions = [
-                f"aws ec2 revoke-security-group-ingress --group-id {target} --protocol tcp --port 22 --cidr 0.0.0.0/0",
-                f"aws ec2 revoke-security-group-ingress --group-id {target} --protocol tcp --port 80 --cidr 0.0.0.0/0",
-            ]
-            rollback = [
-                f"aws ec2 authorize-security-group-ingress --group-id {target} --protocol tcp --port 22 --cidr 0.0.0.0/0",
-            ]
-        elif rule_id == "RULE-IAM-ADMIN":
-            actions = [
-                f"aws iam attach-role-policy --role-name {target} --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess",
-                f"aws iam detach-role-policy --role-name {target} --policy-arn arn:aws:iam::aws:policy/AdministratorAccess",
-            ]
-            rollback = [
-                f"aws iam attach-role-policy --role-name {target} --policy-arn arn:aws:iam::aws:policy/AdministratorAccess",
-            ]
-        elif rule_id == "RULE-RDS-PUBLIC":
-            actions = [
-                f"aws rds modify-db-instance --db-instance-identifier {target} --publicly-accessible false --apply-immediately",
-            ]
-            rollback = [
-                f"aws rds modify-db-instance --db-instance-identifier {target} --publicly-accessible true --apply-immediately",
-            ]
-        else:
-            actions = [f"No remediation template available for rule {rule_id}"]
-            rollback = ["No rollback action defined; review configuration manually."]
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": {
+                    "action": "BLOCK_S3_PUBLIC_ACCESS",
+                    "resource_type": "s3",
+                    "resource_id": target,
+                    "parameters": {
+                        "block_public_acls": True,
+                        "ignore_public_acls": True,
+                        "block_public_policy": True,
+                        "restrict_public_buckets": True,
+                    },
+                },
+                "rollback": {
+                    "action": "RESTORE_S3_PUBLIC_ACCESS",
+                    "resource_type": "s3",
+                    "resource_id": target,
+                    "parameters": {},
+                },
+            }
+
+        if rule_id == "RULE-SG-OPEN":
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": {
+                    "action": "REVOKE_SG_INGRESS",
+                    "resource_type": "security_group",
+                    "resource_id": target,
+                    "parameters": {"cidr": "0.0.0.0/0", "protocol": "tcp", "ports": [22, 80]},
+                },
+                "rollback": {
+                    "action": "RESTORE_SG_INGRESS",
+                    "resource_type": "security_group",
+                    "resource_id": target,
+                    "parameters": {"cidr": "0.0.0.0/0", "protocol": "tcp", "ports": [22, 80]},
+                },
+            }
+
+        if rule_id == "RULE-IAM-ADMIN":
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": {
+                    "action": "REMOVE_IAM_POLICY",
+                    "resource_type": "iam",
+                    "resource_id": target,
+                    "parameters": {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"},
+                },
+                "rollback": {
+                    "action": "RESTORE_IAM_POLICY",
+                    "resource_type": "iam",
+                    "resource_id": target,
+                    "parameters": {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"},
+                },
+            }
 
         return {
             "rule_id": rule_id,
             "target": target,
             "dry_run": dry_run,
-            "actions": actions,
-            "rollback": rollback,
+            "action": {
+                "action": "REVIEW_RESOURCE",
+                "resource_type": "unknown",
+                "resource_id": target,
+                "parameters": {},
+            },
+            "rollback": {
+                "action": "RESTORE_PREVIOUS_CONFIGURATION",
+                "resource_type": "unknown",
+                "resource_id": target,
+                "parameters": {},
+            },
         }
