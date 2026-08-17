@@ -83,9 +83,13 @@ def test_graph_builder_builds_expected_dependency_chain():
     assert "EC2:i-123" in graph.nodes
     assert "IAM:admin-role" in graph.nodes
     assert "S3:public-data-bucket" in graph.nodes
+    assert "POLICY:AdministratorAccess" in graph.nodes
     assert graph.has_edge("EC2:i-123", "IAM:admin-role")
-    assert graph.has_edge("IAM:admin-role", "S3:public-data-bucket")
+    assert graph.has_edge("IAM:admin-role", "POLICY:AdministratorAccess")
     assert graph.has_edge("EC2:i-123", "SG:sg-open-1")
+    assert not graph.has_edge("IAM:admin-role", "S3:public-data-bucket")
+    assert not any(node.startswith("RDS:") for node in graph.nodes)
+    assert not any(graph.has_edge("SG:sg-open-1", node) for node in graph.nodes if node.startswith("RDS:"))
 
 
 def test_risk_engine_prioritizes_high_blast_radius():
