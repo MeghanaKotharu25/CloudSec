@@ -253,8 +253,8 @@ class DiscoveryCollector:
                     )
                 )
         except Exception as e:
-            logger.warning(
-                "RDS discovery is unavailable in the current LocalStack environment; "
+            logger.info(
+                "RDS capability notice: LocalStack does not implement the RDS API in this environment; "
                 "skipping RDS-backed findings to avoid synthetic data. Error: %s",
                 e,
             )

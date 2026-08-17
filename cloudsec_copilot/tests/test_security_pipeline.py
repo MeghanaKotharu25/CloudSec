@@ -131,9 +131,10 @@ def test_ai_reasoner_generates_structured_plan():
 
     response = AIReasoner().reason(finding, score=9.7, graph_summary={"entry_points": ["EC2:i-123"]})
 
-    assert set(response.keys()) >= {"summary", "impact", "steps", "action", "rollback"}
+    assert set(response.keys()) >= {"summary", "impact", "steps", "action", "rollback", "provider"}
     assert response["summary"]
     assert response["steps"]
+    assert response["provider"] in {"openrouter", "huggingface", "ollama", "fallback"}
     assert response["action"]["resource_type"] == "s3"
     assert response["action"]["resource_id"] == "public-data-bucket"
 

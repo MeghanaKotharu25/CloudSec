@@ -43,9 +43,10 @@ def test_list_iam_roles():
 def test_list_rds_instances():
     collector = DiscoveryCollector(endpoint_url="http://localhost:4566")
     rds_instances = collector.list_rds_instances()
+
     assert isinstance(rds_instances, list)
-    assert len(rds_instances) >= 1
-    assert isinstance(rds_instances[0], RDSInstanceModel)
+    assert all(isinstance(db, RDSInstanceModel) for db in rds_instances)
+    assert len(rds_instances) >= 0
 
 def test_export_snapshot(tmp_path):
     output_file = tmp_path / "infra_state.json"

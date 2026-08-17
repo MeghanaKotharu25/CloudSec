@@ -147,10 +147,30 @@ class AIReasoner:
             }
         elif resource_type.startswith("iam"):
             action = {
-                "action": "REMOVE_IAM_POLICY",
+                "action": "REPLACE_IAM_POLICY",
                 "resource_type": "iam",
                 "resource_id": resource,
-                "parameters": {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"},
+                "parameters": {
+                    "current_policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess",
+                    "replacement_policy": {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Sid": "ReadOnlyDiagnostics",
+                                "Effect": "Allow",
+                                "Action": [
+                                    "s3:ListBucket",
+                                    "s3:GetBucketLocation",
+                                    "s3:GetObject",
+                                    "ec2:DescribeInstances",
+                                    "ec2:DescribeSecurityGroups",
+                                    "logs:DescribeLogGroups",
+                                ],
+                                "Resource": "*",
+                            }
+                        ],
+                    },
+                },
             }
         else:
             action = {
@@ -166,7 +186,19 @@ class AIReasoner:
             f"Graph summary: {graph_summary}. Give me: 1) a succinct summary 2) business impact 3) steps to remediate 4) a rollback plan."
         )
 
-        model_response = self._call_openrouter(prompt) or self._call_huggingface(prompt) or self._call_ollama(prompt)
+        provider = "fallback"
+        model_response = self._call_openrouter(prompt)
+        if model_response:
+            provider = "openrouter"
+        else:
+            model_response = self._call_huggingface(prompt)
+            if model_response:
+                provider = "huggingface"
+        if not model_response:
+            model_response = self._call_ollama(prompt)
+            if model_response:
+                provider = "ollama"
+
         if model_response:
             summary = model_response.split("\n")[0][:220] or f"{title} on {resource} requires immediate review."
             impact = "The issue is evaluated through the live dependency graph and could expose connected cloud assets to misuse or data exposure."
@@ -185,6 +217,7 @@ class AIReasoner:
                 "steps": steps,
                 "action": action,
                 "rollback": {"action": "RESTORE_PREVIOUS_CONFIGURATION", "resource_type": action["resource_type"], "resource_id": resource},
+                "provider": provider,
             }
 
         summary = (
@@ -210,4 +243,5 @@ class AIReasoner:
             "steps": steps,
             "action": action,
             "rollback": {"action": "RESTORE_PREVIOUS_CONFIGURATION", "resource_type": action["resource_type"], "resource_id": resource},
+            "provider": provider,
         }

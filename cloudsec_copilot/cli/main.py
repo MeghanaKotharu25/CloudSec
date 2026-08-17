@@ -106,6 +106,7 @@ def fix(vuln_id, yes):
         plan["action"] = reasoning["action"]
 
     console.print("[yellow][*] Generating AI Contextual Analysis & Remediation Plan...[/yellow]")
+    console.print(f"[bold white]AI Provider:[/bold white] {reasoning.get('provider', 'fallback')}")
     console.print(f"[bold white]Reasoning Summary:[/bold white] {reasoning['summary']}")
     console.print(f"[bold white]Proposed Action:[/bold white] {plan['action']['action']} -> {plan['action']['resource_id']}")
     console.print(f"[bold white]Rollback Plan:[/bold white] {plan['rollback']['action']}")
@@ -126,6 +127,8 @@ def fix(vuln_id, yes):
 
     console.print(f"[bold green][+] Fix applied successfully: {result['status']}[/bold green]")
     console.print("[bold yellow][*] Running Post-Remediation Verification Rescan...[/bold yellow]")
+    status_text = "VERIFIED/RESOLVED" if verification["status"] == "VERIFIED" else verification["status"]
+    console.print(f"[bold green][✓] {vuln_id} -> {status_text}[/bold green]")
     console.print(f"[bold green][✓] Verification Result: {verification['status']}[/bold green]")
 
 

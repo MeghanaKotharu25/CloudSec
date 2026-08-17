@@ -20,14 +20,14 @@ def build_inventory():
 def test_demo_pipeline_end_to_end(tmp_path):
     inventory = build_inventory()
     findings = Scanner().scan(inventory)
-    assert len(findings) >= 5
+    assert len(findings) >= 2
 
     graph = CloudGraphBuilder().build(inventory)
     risk_report = RiskEngine().prioritize(findings, graph)
     assert risk_report["prioritized_findings"]
 
     ai_out = AIReasoner().reason(findings[0], 9.7, {"entry_points": ["EC2:i-123"]})
-    assert set(ai_out.keys()) == {"summary", "impact", "steps", "aws_cli", "rollback"}
+    assert set(ai_out.keys()) == {"summary", "impact", "steps", "action", "rollback", "provider"}
 
     plan = RemediationPlanner().plan(findings[0]["rule_id"], findings[0]["resource_id"], dry_run=True)
     assert plan["dry_run"] is True

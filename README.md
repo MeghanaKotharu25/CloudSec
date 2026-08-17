@@ -5,7 +5,9 @@
 ---
 
 ## Executive Summary
-CloudSec-Copilot is a developer-first cloud security assistant delivered as a **CLI tool and browser/IDE extension**. It combines deterministic cloud security scanning, attack graph analysis, graph-based risk prioritization, Agentic AI reasoning, human-approved remediation, and automatic verification into a single workflow.
+CloudSec-Copilot is a developer-first cloud security assistant delivered as a **CLI tool and browser/IDE extension**. It combines deterministic cloud security scanning, attack graph analysis, graph-based risk prioritization, AI-assisted contextual reasoning, human-approved remediation, and automatic verification into a single workflow.
+
+> Validation status: the project is currently validated in an AWS-compatible LocalStack environment, not against production AWS. The LocalStack setup is used for authentic, reproducible security testing of discovery, scan, fix, and verify flows.
 
 Unlike traditional cloud security tools that stop at vulnerability reporting, CloudSec-Copilot explains the business impact of a misconfiguration, identifies the affected attack path, generates executable remediation actions, applies changes after explicit approval, and verifies that the issue has been resolved.
 
@@ -180,10 +182,10 @@ A verification scan confirms that the vulnerability no longer exists.
 # 6. Key Novel Contributions
 
 ## 1. Hybrid Detection + AI Reasoning
-Reliable deterministic scanning combined with contextual AI reasoning.
+Reliable deterministic scanning detects the actual vulnerability; AI provides contextual reasoning, impact explanation, and remediation planning.
 
 ## 2. Attack Graph-Augmented AI
-LLM decisions are grounded in cloud dependency graphs rather than isolated findings.
+AI decisions are grounded in cloud dependency graphs rather than isolated findings, but the vulnerability detection itself remains deterministic and rule-based.
 
 ## 3. Graph-Based Risk Prioritization
 Prioritizes vulnerabilities by blast radius instead of static severity alone.

@@ -51,15 +51,36 @@ class RemediationPlanner:
             }
 
         if rule_id == "RULE-IAM-ADMIN":
+            least_privilege_policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ReadOnlyDiagnostics",
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:ListBucket",
+                            "s3:GetBucketLocation",
+                            "s3:GetObject",
+                            "ec2:DescribeInstances",
+                            "ec2:DescribeSecurityGroups",
+                            "logs:DescribeLogGroups",
+                        ],
+                        "Resource": "*",
+                    }
+                ],
+            }
             return {
                 "rule_id": rule_id,
                 "target": target,
                 "dry_run": dry_run,
                 "action": {
-                    "action": "REMOVE_IAM_POLICY",
+                    "action": "REPLACE_IAM_POLICY",
                     "resource_type": "iam",
                     "resource_id": target,
-                    "parameters": {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"},
+                    "parameters": {
+                        "current_policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess",
+                        "replacement_policy": least_privilege_policy,
+                    },
                 },
                 "rollback": {
                     "action": "RESTORE_IAM_POLICY",

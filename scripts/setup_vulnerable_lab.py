@@ -167,26 +167,9 @@ def setup_admin_iam_role():
         print(f"[-] Error attaching policy: {e}")
 
 def setup_public_rds_instance():
-    print("[*] Provisioning Vulnerable RDS Database...")
-    rds = get_boto3_client("rds")
-    db_id = "vulnerable-prod-db"
-    try:
-        rds.create_db_instance(
-            DBInstanceIdentifier=db_id,
-            AllocatedStorage=5,
-            DBInstanceClass="db.t3.micro",
-            Engine="postgres",
-            MasterUsername="admin",
-            MasterUserPassword="VulnerablePassword123!",
-            PubliclyAccessible=True,
-            StorageEncrypted=False
-        )
-        print(f"[+] RDS DB Instance '{db_id}' provisioned (PubliclyAccessible=True).")
-    except ClientError as e:
-        if "DBInstanceAlreadyExists" in str(e):
-            print(f"[!] RDS DB Instance '{db_id}' already exists.")
-        else:
-            print(f"[-] Error creating RDS instance: {e}")
+    print("[*] Checking LocalStack RDS support...")
+    print("[!] RDS is not available in the current LocalStack configuration; skipping synthetic RDS provisioning.")
+    return
 
 def main():
     print("==================================================")
