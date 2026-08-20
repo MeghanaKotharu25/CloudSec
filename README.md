@@ -341,7 +341,7 @@ CloudSec-Copilot targets the growing **CNAPP and AI-assisted DevSecOps market**.
 - Enterprise compliance modules
 - Managed SaaS dashboard
 
-Its strongest differentiator is **developer-centric, explainable, verified cloud remediation** rather than enterprise-only monitoring.
+Its strongest differentiator is **developer-centric, explainable, verified cloud remediation** rather than enterprise only monitoring.
 
 ---
 
