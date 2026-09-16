@@ -63,8 +63,16 @@ def setup_public_s3_bucket(bucket_name="cloudsec-vulnerable-public-bucket"):
 
     # Remove Public Access Block to make it public
     try:
-        s3.delete_public_access_block(Bucket=bucket_name)
-        print(f"[+] Deleted public access block on bucket '{bucket_name}'.")
+        s3.put_public_access_block(
+            Bucket=bucket_name,
+            PublicAccessBlockConfiguration={
+                "BlockPublicAcls": False,
+                "IgnorePublicAcls": False,
+                "BlockPublicPolicy": False,
+                "RestrictPublicBuckets": False,
+            },
+        )
+        print(f"[+] Reset public access block on bucket '{bucket_name}'.")
     except Exception as e:
         print(f"[!] Note on public access block: {e}")
 
@@ -166,6 +174,76 @@ def setup_admin_iam_role():
     except Exception as e:
         print(f"[-] Error attaching policy: {e}")
 
+    # Create IAM Instance Profile and link the role so EC2 instances can assume it
+    profile_name = role_name
+    try:
+        iam.create_instance_profile(InstanceProfileName=profile_name)
+        print(f"[+] IAM Instance Profile '{profile_name}' created.")
+    except ClientError as e:
+        if "EntityAlreadyExists" in str(e):
+            print(f"[!] IAM Instance Profile '{profile_name}' already exists.")
+        else:
+            print(f"[-] Error creating instance profile: {e}")
+
+    try:
+        iam.add_role_to_instance_profile(
+            InstanceProfileName=profile_name,
+            RoleName=role_name
+        )
+        print(f"[+] Role '{role_name}' added to instance profile '{profile_name}'.")
+    except ClientError as e:
+        if "LimitExceeded" in str(e) or "EntityAlreadyExists" in str(e):
+            print(f"[!] Role '{role_name}' is already attached to instance profile '{profile_name}'.")
+        else:
+            print(f"[-] Error associating role to instance profile: {e}")
+
+def setup_vulnerable_ec2_instance():
+    print("[*] Creating Vulnerable EC2 Instance (CloudSecVulnerableServer)...")
+    ec2 = get_boto3_client("ec2")
+    group_name = "open-secgroup-vulnerable"
+    try:
+        sgs = ec2.describe_security_groups(GroupNames=[group_name])
+        sg_id = sgs['SecurityGroups'][0]['GroupId']
+    except Exception as e:
+        print(f"[-] Could not find security group '{group_name}': {e}")
+        return
+
+    instance_name = "CloudSecVulnerableServer"
+    try:
+        reservations = ec2.describe_instances(
+            Filters=[
+                {"Name": "tag:Name", "Values": [instance_name]},
+                {"Name": "instance-state-name", "Values": ["pending", "running"]},
+            ]
+        ).get("Reservations", [])
+        if reservations and reservations[0].get("Instances"):
+            existing_id = reservations[0]["Instances"][0]["InstanceId"]
+            print(f"[!] EC2 instance '{instance_name}' is already running ({existing_id}).")
+            return
+    except Exception as e:
+        print(f"[!] Note while checking existing instances: {e}")
+
+    try:
+        res = ec2.run_instances(
+            ImageId="ami-12345678",
+            MinCount=1,
+            MaxCount=1,
+            InstanceType="t3.micro",
+            SecurityGroupIds=[sg_id],
+            IamInstanceProfile={"Name": "CloudSecVulnerableAdminRole"},
+            TagSpecifications=[
+                {
+                    "ResourceType": "instance",
+                    "Tags": [{"Key": "Name", "Value": instance_name}],
+                }
+            ],
+        )
+        inst_id = res["Instances"][0]["InstanceId"]
+        pub_ip = res["Instances"][0].get("PublicIpAddress", "Assigned")
+        print(f"[+] EC2 instance '{instance_name}' ({inst_id}) created with public IP ({pub_ip}).")
+    except Exception as e:
+        print(f"[-] Error launching EC2 instance: {e}")
+
 def setup_public_rds_instance():
     print("[*] Checking LocalStack RDS support...")
     print("[!] RDS is not available in the current LocalStack configuration; skipping synthetic RDS provisioning.")
@@ -190,6 +268,8 @@ def main():
     setup_open_security_group()
     print("-" * 50)
     setup_admin_iam_role()
+    print("-" * 50)
+    setup_vulnerable_ec2_instance()
     print("-" * 50)
     setup_public_rds_instance()
     print("==================================================")
