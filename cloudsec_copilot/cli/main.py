@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from cloudsec_copilot.ai.ai_reasoner import AIReasoner
+from cloudsec_copilot.ai.safety_validator import AISafetyValidator
 from cloudsec_copilot.discovery.collector import DiscoveryCollector
 from cloudsec_copilot.executor.executor import Executor
 from cloudsec_copilot.graph.graph_builder import CloudGraphBuilder
@@ -261,10 +262,27 @@ def fix(vuln_id, yes):
     graph = CloudGraphBuilder().build(snapshot, findings=findings)
     risk_report = RiskEngine().prioritize(findings, graph)
     score = next((item["composite_score"] for item in risk_report["prioritized_findings"] if item["vuln_id"] == vuln_id), 5.0)
+    
+    # 1. AI Recommendation & Explanation (Advisory)
     reasoning = AIReasoner().reason(finding, score, risk_report["attack_graph_summary"])
-    plan = RemediationPlanner().plan(finding["rule_id"], finding["resource_id"], dry_run=False)
-    if reasoning.get("action"):
-        plan["action"] = reasoning["action"]
+
+    # 2. Strict Deterministic Plan from Predefined Allowlist
+    plan = RemediationPlanner().plan(
+        finding["rule_id"],
+        finding["resource_id"],
+        dry_run=False,
+        finding_details=finding.get("details"),
+    )
+
+    # 3. AI Safety Validation Gate
+    validator = AISafetyValidator()
+    validation = validator.validate(
+        finding=finding,
+        planned_action=plan["action"],
+        ai_recommendation=reasoning,
+        risk_score=score,
+        graph_context=risk_report.get("attack_graph_summary"),
+    )
 
     console.print("[yellow][*] Generating AI Contextual Analysis & Remediation Plan...[/yellow]")
     console.print(f"[bold white]AI Provider:[/bold white] {reasoning.get('provider', 'fallback')}")
@@ -272,25 +290,59 @@ def fix(vuln_id, yes):
     console.print(f"[bold white]Proposed Action:[/bold white] {plan['action']['action']} -> {plan['action']['resource_id']}")
     console.print(f"[bold white]Rollback Plan:[/bold white] {plan['rollback']['action']}")
 
+    if validation["status"] != "APPROVED":
+        console.print(Panel.fit(
+            f"[bold red]AI Safety Validation Gate: BLOCKED[/bold red]\n"
+            f"Reason: {validation.get('reason')}\n"
+            f"Errors: {', '.join(validation.get('validation_errors', []))}",
+            border_style="red"
+        ))
+        return
+
+    console.print("[bold green][+] AI Safety Validation: APPROVED (Allowlisted & Verified Safe)[/bold green]")
+
+    # 4. Human Approval
     if not yes and not click.confirm("Do you approve executing this cloud remediation action?"):
         console.print("[bold red]Action cancelled by user.[/bold red]")
         return
 
-    console.print("[bold yellow][*] Executing Cloud Mutation via Boto3...[/bold yellow]")
-    result = Executor().execute(plan, finding, approved=True)
+    # 5. Cloud Execution with State Capture
+    console.print("[bold yellow][*] Capturing original state & executing cloud mutation via Boto3...[/bold yellow]")
+    executor = Executor()
+    result = executor.execute(
+        plan,
+        finding,
+        approved=True,
+        risk_score=score,
+        validation_result=validation,
+        ai_provider=reasoning.get("provider"),
+    )
+
+    if result["status"] == "ALREADY_SECURE":
+        console.print(f"[bold green][+] Resource is already in secure state: {result['reason']}[/bold green]")
+        return
+
     if result["status"] != "APPLIED":
         console.print(f"[bold red]Execution failed: {result.get('reason')}[/bold red]")
         return
 
+    # 6. Verification Rescan
+    console.print("[bold yellow][*] Running Post-Remediation Verification Rescan...[/bold yellow]")
     after_snapshot = collector.collect_all()
     after_findings = Scanner().scan(after_snapshot)
     verification = Verifier().verify_finding_removed([finding], after_findings, vuln_id)
 
-    console.print(f"[bold green][+] Fix applied successfully: {result['status']}[/bold green]")
-    console.print("[bold yellow][*] Running Post-Remediation Verification Rescan...[/bold yellow]")
-    status_text = "VERIFIED/RESOLVED" if verification["status"] == "VERIFIED" else verification["status"]
-    console.print(f"[bold green][+] {vuln_id} -> {status_text}[/bold green]")
-    console.print(f"[bold green][+] Verification Result: {verification['status']}[/bold green]")
+    # Update audit record with verification result
+    audit_rec = result.get("audit_record")
+    if audit_rec:
+        audit_rec["verification_result"] = verification["status"]
+        executor._update_audit_record(audit_rec)
+
+    if verification["status"] == "VERIFIED":
+        console.print(f"[bold green][+] Fix applied successfully: {result['status']}[/bold green]")
+        console.print(f"[bold green][+] {vuln_id} -> VERIFIED/RESOLVED (Vulnerability removed from live scan)[/bold green]")
+    else:
+        console.print(f"[bold red][!] Remediation incomplete: {vuln_id} -> {verification['status']}[/bold red]")
 
 
 @cli.command("fix-all")
@@ -320,6 +372,7 @@ def fix_all(yes):
 
     console.print("\n[bold yellow][*] Beginning Sequential Remediation Execution...[/bold yellow]")
     executor = Executor()
+    validator = AISafetyValidator()
     remediated_count = 0
 
     for item in prioritized:
@@ -330,13 +383,39 @@ def fix_all(yes):
 
         console.print(f"\n[cyan][*] Processing {v_id} ({match_finding['resource_id']})...[/cyan]")
         reasoning = AIReasoner().reason(match_finding, item["composite_score"], risk_report["attack_graph_summary"])
-        plan = RemediationPlanner().plan(match_finding["rule_id"], match_finding["resource_id"], dry_run=False)
-        if reasoning.get("action"):
-            plan["action"] = reasoning["action"]
+        plan = RemediationPlanner().plan(
+            match_finding["rule_id"],
+            match_finding["resource_id"],
+            dry_run=False,
+            finding_details=match_finding.get("details"),
+        )
 
-        result = executor.execute(plan, match_finding, approved=True)
+        validation = validator.validate(
+            finding=match_finding,
+            planned_action=plan["action"],
+            ai_recommendation=reasoning,
+            risk_score=item["composite_score"],
+            graph_context=risk_report.get("attack_graph_summary"),
+        )
+
+        if validation["status"] != "APPROVED":
+            console.print(f"    [red][!] Safety validation failed for {v_id}: {validation.get('reason')}[/red]")
+            continue
+
+        result = executor.execute(
+            plan,
+            match_finding,
+            approved=True,
+            risk_score=item["composite_score"],
+            validation_result=validation,
+            ai_provider=reasoning.get("provider"),
+        )
+
         if result["status"] == "APPLIED":
             console.print(f"    [green][+] Applied: {plan['action']['action']}[/green]")
+            remediated_count += 1
+        elif result["status"] == "ALREADY_SECURE":
+            console.print(f"    [green][+] Already secure: {plan['action']['action']}[/green]")
             remediated_count += 1
         else:
             console.print(f"    [red][!] Failed: {result.get('reason')}[/red]")
@@ -354,6 +433,59 @@ def fix_all(yes):
         console.print(f"[yellow][!] Remaining open findings: {', '.join(sorted(remaining_ids))}[/yellow]")
     else:
         console.print("[bold green][+] Zero findings remaining! All vulnerabilities successfully remediated.[/bold green]")
+
+
+@cli.command()
+@click.option("--id", "vuln_id", default=None, help="Finding ID to rollback (e.g. VULN-001).")
+@click.option("--audit-id", default=None, help="Specific audit record ID to rollback.")
+@click.option("--last", is_flag=True, help="Rollback the most recently applied remediation action.")
+@click.option("--yes", "-y", is_flag=True, help="Skip interactive approval prompt.")
+def rollback(vuln_id, audit_id, last, yes):
+    """Rollback a previously applied remediation action and restore captured original state."""
+    console.print(Panel.fit("[bold yellow]Rollback Engine[/bold yellow] - State Restoration", border_style="yellow"))
+    executor = Executor()
+    records = executor.get_audit_history()
+
+    target_record = None
+    if audit_id:
+        target_record = next((r for r in reversed(records) if r.get("audit_id") == audit_id), None)
+    elif vuln_id:
+        target_record = next((r for r in reversed(records) if r.get("finding_id") == vuln_id and r.get("status") == "APPLIED"), None)
+    elif last or not (audit_id or vuln_id):
+        target_record = next((r for r in reversed(records) if r.get("status") == "APPLIED"), None)
+
+    if not target_record:
+        console.print("[bold red]No matching applied remediation audit record found to rollback.[/bold red]")
+        return
+
+    console.print(f"[white]Target Audit ID:[/white] [cyan]{target_record.get('audit_id', 'N/A')}[/cyan]")
+    console.print(f"[white]Finding ID:[/white]      [cyan]{target_record.get('finding_id')}[/cyan]")
+    console.print(f"[white]Resource ID:[/white]     [magenta]{target_record.get('resource_id')}[/magenta]")
+    console.print(f"[white]Action Applied:[/white]  [yellow]{target_record.get('action')}[/yellow]")
+    console.print(f"[white]Original State:[/white]  Captured at {target_record.get('original_state', {}).get('captured_at', 'N/A')}")
+
+    if not yes and not click.confirm(f"\nDo you approve rolling back {target_record.get('finding_id')} on {target_record.get('resource_id')}?"):
+        console.print("[bold red]Rollback cancelled by user.[/bold red]")
+        return
+
+    console.print("[bold yellow][*] Restoring Captured Cloud State via Boto3...[/bold yellow]")
+    result = executor.rollback(target_record, approved=True)
+    if result.get("status") != "RESTORED":
+        console.print(f"[bold red]Rollback failed: {result.get('reason')}[/bold red]")
+        return
+
+    console.print(f"[bold green][+] Original state restored successfully.[/bold green]")
+    console.print("[bold yellow][*] Running Post-Rollback Verification Rescan...[/bold yellow]")
+    collector = DiscoveryCollector()
+    after_snapshot = collector.collect_all()
+    after_findings = Scanner().scan(after_snapshot)
+
+    f_id = target_record.get("finding_id")
+    verification = Verifier().verify_rollback([], after_findings, f_id)
+    if verification["status"] == "ROLLBACK_VERIFIED":
+        console.print(f"[bold green][+] Rollback Verified: {f_id} restored as expected in live scan.[/bold green]")
+    else:
+        console.print(f"[yellow][!] Rollback verification status: {verification['status']}[/yellow]")
 
 
 @cli.command()
