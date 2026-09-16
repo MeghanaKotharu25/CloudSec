@@ -35,12 +35,15 @@ class IAMRoleModel(BaseModel):
     is_admin: bool = False
     attached_policies: List[str] = Field(default_factory=list)
     inline_policies: List[str] = Field(default_factory=list)
+    policy_documents: List[Any] = Field(default_factory=list)
 
 class IAMPolicyModel(BaseModel):
     policy_name: str
     policy_id: Optional[str] = None
     arn: str
     is_admin: bool = False
+    policy_document: Optional[Any] = None
+    statements: List[Any] = Field(default_factory=list)
 
 class RDSInstanceModel(BaseModel):
     db_instance_identifier: str
@@ -52,6 +55,7 @@ class RDSInstanceModel(BaseModel):
 
 class EC2InstanceModel(BaseModel):
     instance_id: str
+    name: Optional[str] = None
     instance_type: str = Field(default="t3.micro")
     state: str = Field(default="running")
     public_ip: Optional[str] = None

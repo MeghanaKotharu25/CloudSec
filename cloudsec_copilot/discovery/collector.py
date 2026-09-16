@@ -83,9 +83,37 @@ class DiscoveryCollector:
                             "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
                         ]:
                             acl_public = True
-                            is_public = True
                 except Exception as e:
                     logger.debug(f"Could not fetch ACL for bucket {b_name}: {e}")
+
+                try:
+                    pol_resp = s3.get_bucket_policy(Bucket=b_name)
+                    policy_str = pol_resp.get("Policy")
+                    if policy_str:
+                        policy_doc = json.loads(policy_str) if isinstance(policy_str, str) else policy_str
+                        statements = policy_doc.get("Statement", [])
+                        if isinstance(statements, dict):
+                            statements = [statements]
+                        for stmt in statements:
+                            if stmt.get("Effect") == "Allow":
+                                principal = stmt.get("Principal")
+                                is_public_principal = (
+                                    principal == "*"
+                                    or (isinstance(principal, dict) and (principal.get("AWS") == "*" or "*" in principal.get("AWS", [])))
+                                )
+                                if is_public_principal:
+                                    policy_public = True
+                                    break
+                except ClientError as e:
+                    error_code = e.response.get("Error", {}).get("Code")
+                    if error_code in ("NoSuchBucketPolicy", "MethodNotAllowed", "AccessDenied"):
+                        pass
+                    else:
+                        logger.debug(f"Could not fetch bucket policy for {b_name}: {e}")
+                except Exception as e:
+                    logger.debug(f"Error inspecting bucket policy for {b_name}: {e}")
+
+                is_public = acl_public or policy_public
 
                 encryption_enabled = False
                 try:
@@ -113,6 +141,7 @@ class DiscoveryCollector:
                     name="cloudsec-vulnerable-public-bucket",
                     is_public=True,
                     acl_public=True,
+                    policy_public=False,
                     encryption_enabled=False,
                     arn="arn:aws:s3:::cloudsec-vulnerable-public-bucket",
                 )
@@ -177,14 +206,58 @@ class DiscoveryCollector:
             for r in response.get("Roles", []):
                 role_name = r["RoleName"]
                 attached_policies = []
+                role_policy_docs: List[Dict[str, Any]] = []
                 is_admin = False
                 try:
                     att_resp = iam.list_attached_role_policies(RoleName=role_name)
                     for pol in att_resp.get("AttachedPolicies", []):
                         p_arn = pol.get("PolicyArn", "")
-                        attached_policies.append(pol.get("PolicyName", p_arn))
-                        if "AdministratorAccess" in p_arn or "admin" in pol.get("PolicyName", "").lower():
+                        p_name = pol.get("PolicyName", p_arn)
+                        attached_policies.append(p_name)
+                        if "AdministratorAccess" in p_arn or "admin" in p_name.lower():
                             is_admin = True
+                        try:
+                            if "AdministratorAccess" in p_arn:
+                                role_policy_docs.append({
+                                    "PolicyName": p_name,
+                                    "PolicyArn": p_arn,
+                                    "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}],
+                                })
+                            else:
+                                pol_info = iam.get_policy(PolicyArn=p_arn)
+                                def_ver = pol_info.get("Policy", {}).get("DefaultVersionId", "v1")
+                                ver_info = iam.get_policy_version(PolicyArn=p_arn, VersionId=def_ver)
+                                raw_doc = ver_info.get("PolicyVersion", {}).get("Document")
+                                doc = raw_doc
+                                if isinstance(raw_doc, str):
+                                    import urllib.parse
+                                    doc = json.loads(urllib.parse.unquote(raw_doc))
+                                if isinstance(doc, dict):
+                                    doc["PolicyArn"] = p_arn
+                                    doc["PolicyName"] = p_name
+                                    role_policy_docs.append(doc)
+                        except Exception as p_err:
+                            logger.debug(f"Could not retrieve policy document for {p_arn}: {p_err}")
+                except Exception:
+                    pass
+
+                inline_policies: List[str] = []
+                try:
+                    inline_resp = iam.list_role_policies(RoleName=role_name)
+                    for in_name in inline_resp.get("PolicyNames", []):
+                        inline_policies.append(in_name)
+                        try:
+                            pol_detail = iam.get_role_policy(RoleName=role_name, PolicyName=in_name)
+                            raw_doc = pol_detail.get("PolicyDocument")
+                            doc = raw_doc
+                            if isinstance(raw_doc, str):
+                                import urllib.parse
+                                doc = json.loads(urllib.parse.unquote(raw_doc))
+                            if isinstance(doc, dict):
+                                doc["PolicyName"] = in_name
+                                role_policy_docs.append(doc)
+                        except Exception as in_err:
+                            logger.debug(f"Could not retrieve inline policy {in_name} for role {role_name}: {in_err}")
                 except Exception:
                     pass
 
@@ -195,6 +268,8 @@ class DiscoveryCollector:
                         arn=r.get("Arn", f"arn:aws:iam::123456789012:role/{role_name}"),
                         is_admin=is_admin,
                         attached_policies=attached_policies,
+                        inline_policies=inline_policies,
+                        policy_documents=role_policy_docs,
                     )
                 )
         except Exception as e:
@@ -205,6 +280,19 @@ class DiscoveryCollector:
                     arn="arn:aws:iam::123456789012:role/CloudSecVulnerableAdminRole",
                     is_admin=True,
                     attached_policies=["AdministratorAccess"],
+                    policy_documents=[
+                        {
+                            "PolicyName": "AdministratorAccess",
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": "*",
+                                    "Resource": "*",
+                                }
+                            ],
+                        }
+                    ],
                 )
             )
         return roles
@@ -218,12 +306,34 @@ class DiscoveryCollector:
             response = iam.list_policies(Scope="Local")
             for p in response.get("Policies", []):
                 p_name = p["PolicyName"]
+                p_arn = p.get("Arn", f"arn:aws:iam::123456789012:policy/{p_name}")
+                p_id = p.get("PolicyId")
+                default_ver = p.get("DefaultVersionId")
+                doc = None
+                statements: List[Dict[str, Any]] = []
+                if default_ver:
+                    try:
+                        ver_resp = iam.get_policy_version(PolicyArn=p_arn, VersionId=default_ver)
+                        raw_doc = ver_resp.get("PolicyVersion", {}).get("Document")
+                        if isinstance(raw_doc, str):
+                            import urllib.parse
+                            doc = json.loads(urllib.parse.unquote(raw_doc))
+                        elif isinstance(raw_doc, dict):
+                            doc = raw_doc
+                        if isinstance(doc, dict):
+                            raw_stmt = doc.get("Statement", [])
+                            statements = [raw_stmt] if isinstance(raw_stmt, dict) else raw_stmt
+                    except Exception as e:
+                        logger.debug(f"Could not fetch policy document for {p_arn}: {e}")
+
                 policies.append(
                     IAMPolicyModel(
                         policy_name=p_name,
-                        policy_id=p.get("PolicyId"),
-                        arn=p.get("Arn", f"arn:aws:iam::123456789012:policy/{p_name}"),
+                        policy_id=p_id,
+                        arn=p_arn,
                         is_admin=("admin" in p_name.lower()),
+                        policy_document=doc,
+                        statements=statements,
                     )
                 )
         except Exception as e:
@@ -272,9 +382,15 @@ class DiscoveryCollector:
                 for inst in res.get("Instances", []):
                     sg_names = [s.get("GroupId") for s in inst.get("SecurityGroups", [])]
                     profile = inst.get("IamInstanceProfile", {}).get("Arn")
+                    inst_name = None
+                    for tag in inst.get("Tags", []):
+                        if tag.get("Key") == "Name":
+                            inst_name = tag.get("Value")
+                            break
                     ec2_list.append(
                         EC2InstanceModel(
                             instance_id=inst.get("InstanceId", "i-unknown"),
+                            name=inst_name,
                             instance_type=inst.get("InstanceType", "t3.micro"),
                             state=inst.get("State", {}).get("Name", "running"),
                             public_ip=inst.get("PublicIpAddress"),

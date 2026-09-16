@@ -1,0 +1,57 @@
+{
+  "title": "CloudSec-Copilot Security Audit Report",
+  "version": "0.1.0",
+  "status": "COMPLETED",
+  "summary": {
+    "total_findings": 2,
+    "critical": 1,
+    "high": 1
+  },
+  "findings": [
+    {
+      "id": "VULN-003",
+      "rule_id": "RULE-SG-OPEN",
+      "title": "Open security group allowing public ingress",
+      "severity": "HIGH",
+      "resource_id": "sg-149be0e533ab4c116",
+      "resource_type": "SecurityGroup",
+      "region": "us-east-1",
+      "details": {
+        "group_name": "open-secgroup-vulnerable",
+        "vpc_id": "vpc-c7825b3e",
+        "open_rules": [
+          {
+            "protocol": "tcp",
+            "from_port": 22,
+            "to_port": 22,
+            "cidr_ip": "0.0.0.0/0"
+          },
+          {
+            "protocol": "tcp",
+            "from_port": 80,
+            "to_port": 80,
+            "cidr_ip": "0.0.0.0/0"
+          }
+        ]
+      },
+      "remediation_hint": "Restrict inbound traffic to trusted CIDRs and remove 0.0.0.0/0 access."
+    },
+    {
+      "id": "VULN-005",
+      "rule_id": "RULE-IAM-ADMIN",
+      "title": "IAM role has full administrative privileges",
+      "severity": "CRITICAL",
+      "resource_id": "CloudSecVulnerableAdminRole",
+      "resource_type": "IAMRole",
+      "region": "us-east-1",
+      "details": {
+        "role_name": "CloudSecVulnerableAdminRole",
+        "attached_policies": [
+          "AdministratorAccess"
+        ],
+        "arn": "arn:aws:iam::000000000000:role/CloudSecVulnerableAdminRole"
+      },
+      "remediation_hint": "Replace broad AdministratorAccess with least-privilege permissions."
+    }
+  ]
+}

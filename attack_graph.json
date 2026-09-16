@@ -1,0 +1,163 @@
+{
+  "total_nodes": 7,
+  "total_edges": 6,
+  "nodes": [
+    {
+      "id": "INTERNET",
+      "type": "INTERNET",
+      "label": "INTERNET",
+      "resource": "internet",
+      "is_vulnerable": false,
+      "vulnerabilities": []
+    },
+    {
+      "id": "S3:cloudsec-vulnerable-public-bucket",
+      "type": "S3",
+      "label": "S3:cloudsec-vulnerable-public-bucket",
+      "resource": "cloudsec-vulnerable-public-bucket",
+      "is_vulnerable": true,
+      "vulnerabilities": [
+        "VULN-001"
+      ]
+    },
+    {
+      "id": "SG:sg-51be32a125fde9635",
+      "type": "SECURITY_GROUP",
+      "label": "SG:sg-51be32a125fde9635",
+      "resource": "sg-51be32a125fde9635",
+      "is_vulnerable": false,
+      "vulnerabilities": []
+    },
+    {
+      "id": "SG:sg-d97cc68a92fc1a4cc",
+      "type": "SECURITY_GROUP",
+      "label": "SG:sg-d97cc68a92fc1a4cc",
+      "resource": "sg-d97cc68a92fc1a4cc",
+      "is_vulnerable": true,
+      "vulnerabilities": [
+        "VULN-003",
+        "VULN-006"
+      ]
+    },
+    {
+      "id": "EC2:i-fab0ae2c08875f97b",
+      "type": "EC2",
+      "label": "EC2:i-fab0ae2c08875f97b",
+      "resource": "i-fab0ae2c08875f97b",
+      "is_vulnerable": true,
+      "vulnerabilities": [
+        "VULN-004"
+      ]
+    },
+    {
+      "id": "IAM:CloudSecVulnerableAdminRole",
+      "type": "IAM_ROLE",
+      "label": "IAM:CloudSecVulnerableAdminRole",
+      "resource": "CloudSecVulnerableAdminRole",
+      "is_vulnerable": true,
+      "vulnerabilities": [
+        "VULN-005",
+        "VULN-007"
+      ]
+    },
+    {
+      "id": "POLICY:AdministratorAccess",
+      "type": "IAM_POLICY",
+      "label": "POLICY:AdministratorAccess",
+      "resource": "AdministratorAccess",
+      "is_vulnerable": true,
+      "vulnerabilities": []
+    }
+  ],
+  "edges": [
+    {
+      "source": "INTERNET",
+      "target": "S3:cloudsec-vulnerable-public-bucket",
+      "relationship": "PUBLIC_ACCESS",
+      "security_relevant": true,
+      "reason": "S3 bucket 'cloudsec-vulnerable-public-bucket' allows unrestricted public access.",
+      "ports": []
+    },
+    {
+      "source": "INTERNET",
+      "target": "SG:sg-d97cc68a92fc1a4cc",
+      "relationship": "PUBLIC_INGRESS",
+      "security_relevant": true,
+      "reason": "Security Group 'open-secgroup-vulnerable' allows public ingress from 0.0.0.0/0 (TCP 22/SSH, 80).",
+      "ports": [
+        22,
+        80
+      ]
+    },
+    {
+      "source": "SG:sg-d97cc68a92fc1a4cc",
+      "target": "EC2:i-fab0ae2c08875f97b",
+      "relationship": "ALLOWS_TRAFFIC",
+      "security_relevant": true,
+      "reason": "Traffic allowed by Security Group sg-d97cc68a92fc1a4cc reaches EC2 i-fab0ae2c08875f97b",
+      "ports": []
+    },
+    {
+      "source": "EC2:i-fab0ae2c08875f97b",
+      "target": "SG:sg-d97cc68a92fc1a4cc",
+      "relationship": "ASSOCIATED_WITH",
+      "security_relevant": false,
+      "reason": "EC2 i-fab0ae2c08875f97b is associated with sg-d97cc68a92fc1a4cc",
+      "ports": []
+    },
+    {
+      "source": "EC2:i-fab0ae2c08875f97b",
+      "target": "IAM:CloudSecVulnerableAdminRole",
+      "relationship": "ASSUMES_ROLE",
+      "security_relevant": true,
+      "reason": "EC2 instance 'i-fab0ae2c08875f97b' assumes IAM role 'CloudSecVulnerableAdminRole'.",
+      "ports": []
+    },
+    {
+      "source": "IAM:CloudSecVulnerableAdminRole",
+      "target": "POLICY:AdministratorAccess",
+      "relationship": "GRANTS_PERMISSION",
+      "security_relevant": true,
+      "reason": "IAM role 'CloudSecVulnerableAdminRole' grants permissions via policy 'AdministratorAccess'.",
+      "ports": []
+    }
+  ],
+  "attack_paths": {
+    "S3:cloudsec-vulnerable-public-bucket": [
+      [
+        "INTERNET",
+        "S3:cloudsec-vulnerable-public-bucket"
+      ]
+    ],
+    "SG:sg-d97cc68a92fc1a4cc": [
+      [
+        "INTERNET",
+        "SG:sg-d97cc68a92fc1a4cc"
+      ]
+    ],
+    "EC2:i-fab0ae2c08875f97b": [
+      [
+        "INTERNET",
+        "SG:sg-d97cc68a92fc1a4cc",
+        "EC2:i-fab0ae2c08875f97b"
+      ]
+    ],
+    "IAM:CloudSecVulnerableAdminRole": [
+      [
+        "INTERNET",
+        "SG:sg-d97cc68a92fc1a4cc",
+        "EC2:i-fab0ae2c08875f97b",
+        "IAM:CloudSecVulnerableAdminRole"
+      ]
+    ],
+    "POLICY:AdministratorAccess": [
+      [
+        "INTERNET",
+        "SG:sg-d97cc68a92fc1a4cc",
+        "EC2:i-fab0ae2c08875f97b",
+        "IAM:CloudSecVulnerableAdminRole",
+        "POLICY:AdministratorAccess"
+      ]
+    ]
+  }
+}

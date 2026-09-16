@@ -25,6 +25,21 @@ CloudSec-Copilot is a developer-centric, CLI-first cloud security posture manage
 | **FR9** | Verify remediation | Rescan the modified target resource to confirm vulnerability resolution. | High |
 | **FR10** | Export scan report | Generate JSON/HTML security audit reports. | Medium |
 
+### Phase 1 Vulnerability Rule Set
+
+| Finding ID | Rule ID | Title | Severity | Status | Testing Validation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **VULN-001** | `RULE-S3-PUBLIC` | Public S3 bucket exposure (ACL / policy) | CRITICAL | Preserved & Hardened | **LIVE LOCALSTACK TESTED** |
+| **VULN-002** | `RULE-S3-NO-ENCRYPTION` | S3 bucket without encryption | HIGH | Preserved | **UNIT TESTED** |
+| **VULN-003** | `RULE-SG-OPEN` | Open security group allowing public ingress (`0.0.0.0/0`) | HIGH | Preserved | **LIVE LOCALSTACK TESTED** |
+| **VULN-004** | `RULE-EC2-PUBLIC` | Publicly accessible EC2 instance | HIGH | Implemented | **UNIT TESTED** |
+| **VULN-005** | `RULE-IAM-ADMIN` | IAM role has full administrative privileges | CRITICAL | Preserved | **LIVE LOCALSTACK TESTED** |
+| **VULN-006** | `RULE-SG-SENSITIVE-PORT` | Sensitive service (SSH/RDP/DB) exposed to `0.0.0.0/0` | CRITICAL / HIGH | Implemented | **LIVE LOCALSTACK TESTED** |
+| **VULN-007** | `RULE-IAM-WILDCARD` | IAM policy grants dangerous wildcard permissions | CRITICAL / HIGH | Implemented | **LIVE LOCALSTACK TESTED** |
+| **VULN-008** | `RULE-EC2-EBS-NO-ENCRYPTION` | Unencrypted EC2/EBS storage | HIGH | Planned | *Deferred (requires EBS discovery)* |
+| **VULN-009** | `RULE-RDS-PUBLIC` | Publicly accessible RDS database instance | CRITICAL | Implemented | **UNIT TESTED** |
+| **VULN-010** | `RULE-RDS-NO-ENCRYPTION` | Unencrypted RDS database storage | HIGH | Implemented | **UNIT TESTED** |
+
 ---
 
 ## 3. Non-Functional Requirements
