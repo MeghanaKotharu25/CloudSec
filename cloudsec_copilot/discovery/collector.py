@@ -118,10 +118,32 @@ class DiscoveryCollector:
                 encryption_enabled = False
                 try:
                     enc_resp = s3.get_bucket_encryption(Bucket=b_name)
-                    if enc_resp.get("ServerSideEncryptionConfiguration"):
+                    rules = enc_resp.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
+                    if rules:
                         encryption_enabled = True
                 except Exception:
                     encryption_enabled = False
+
+                versioning_enabled = False
+                try:
+                    ver_resp = s3.get_bucket_versioning(Bucket=b_name)
+                    if ver_resp.get("Status") == "Enabled":
+                        versioning_enabled = True
+                except Exception:
+                    versioning_enabled = False
+
+                website_enabled = False
+                website_configuration = None
+                try:
+                    web_resp = s3.get_bucket_website(Bucket=b_name)
+                    if web_resp.get("IndexDocument"):
+                        website_enabled = True
+                        website_configuration = {
+                            "IndexDocument": web_resp.get("IndexDocument"),
+                            "ErrorDocument": web_resp.get("ErrorDocument"),
+                        }
+                except Exception:
+                    website_enabled = False
 
                 buckets.append(
                     S3BucketModel(
@@ -131,6 +153,9 @@ class DiscoveryCollector:
                         acl_public=acl_public,
                         policy_public=policy_public,
                         encryption_enabled=encryption_enabled,
+                        versioning_enabled=versioning_enabled,
+                        website_enabled=website_enabled,
+                        website_configuration=website_configuration,
                         arn=f"arn:aws:s3:::{b_name}",
                     )
                 )
@@ -261,6 +286,28 @@ class DiscoveryCollector:
                 except Exception:
                     pass
 
+                assume_role_doc = r.get("AssumeRolePolicyDocument")
+                if isinstance(assume_role_doc, str):
+                    import urllib.parse
+                    try:
+                        assume_role_doc = json.loads(urllib.parse.unquote(assume_role_doc))
+                    except Exception:
+                        pass
+
+                trust_allows_wildcard = False
+                if isinstance(assume_role_doc, dict):
+                    stmts = assume_role_doc.get("Statement", [])
+                    if isinstance(stmts, dict):
+                        stmts = [stmts]
+                    for stmt in stmts:
+                        if not isinstance(stmt, dict):
+                            continue
+                        if stmt.get("Effect") == "Allow":
+                            princ = stmt.get("Principal")
+                            if princ == "*" or (isinstance(princ, dict) and (princ.get("AWS") == "*" or "*" in princ.get("AWS", []))):
+                                trust_allows_wildcard = True
+                                break
+
                 roles.append(
                     IAMRoleModel(
                         role_name=role_name,
@@ -270,6 +317,8 @@ class DiscoveryCollector:
                         attached_policies=attached_policies,
                         inline_policies=inline_policies,
                         policy_documents=role_policy_docs,
+                        assume_role_policy_document=assume_role_doc,
+                        trust_allows_wildcard=trust_allows_wildcard,
                     )
                 )
         except Exception as e:

@@ -59,7 +59,7 @@ class Scanner:
             if not bucket.encryption_enabled:
                 findings.append(
                     self._make_finding(
-                        "VULN-002",
+                        "VULN-008",
                         "RULE-S3-NO-ENCRYPTION",
                         "S3 bucket without encryption",
                         "HIGH",
@@ -67,6 +67,38 @@ class Scanner:
                         "S3Bucket",
                         {"bucket_name": bucket.name, "encryption_enabled": False},
                         "Enable bucket encryption with SSE-S3 or SSE-KMS.",
+                        region=region,
+                    )
+                )
+            if not getattr(bucket, "versioning_enabled", False):
+                findings.append(
+                    self._make_finding(
+                        "VULN-009",
+                        "RULE-S3-NO-VERSIONING",
+                        "S3 bucket versioning disabled",
+                        "MEDIUM",
+                        bucket.name,
+                        "S3Bucket",
+                        {"bucket_name": bucket.name, "versioning_enabled": False},
+                        "Enable S3 bucket versioning to protect against accidental deletion or overwrite.",
+                        region=region,
+                    )
+                )
+            if getattr(bucket, "website_enabled", False):
+                findings.append(
+                    self._make_finding(
+                        "VULN-010",
+                        "RULE-S3-WEBSITE-ENABLED",
+                        "S3 static website hosting enabled",
+                        "MEDIUM",
+                        bucket.name,
+                        "S3Bucket",
+                        {
+                            "bucket_name": bucket.name,
+                            "website_enabled": True,
+                            "website_configuration": getattr(bucket, "website_configuration", None),
+                        },
+                        "Disable S3 website hosting unless explicitly required for public web traffic.",
                         region=region,
                     )
                 )
@@ -235,6 +267,39 @@ class Scanner:
                     seen=seen_iam_findings,
                 )
                 findings.extend(wildcard_findings)
+
+            # VULN-011: Inspect IAM trust policy for wildcard principal
+            trust_doc = getattr(role, "assume_role_policy_document", None)
+            trust_wildcard = getattr(role, "trust_allows_wildcard", False)
+            if not trust_wildcard and isinstance(trust_doc, dict):
+                stmts = trust_doc.get("Statement", [])
+                if isinstance(stmts, dict):
+                    stmts = [stmts]
+                for stmt in stmts:
+                    if isinstance(stmt, dict) and stmt.get("Effect") == "Allow":
+                        princ = stmt.get("Principal")
+                        if princ == "*" or (isinstance(princ, dict) and (princ.get("AWS") == "*" or "*" in princ.get("AWS", []))):
+                            trust_wildcard = True
+                            break
+
+            if trust_wildcard:
+                findings.append(
+                    self._make_finding(
+                        "VULN-011",
+                        "RULE-IAM-WILDCARD-TRUST",
+                        "IAM role trust policy allows wildcard principal (*)",
+                        "CRITICAL",
+                        role.role_name,
+                        "IAMRole",
+                        {
+                            "role_name": role.role_name,
+                            "arn": role.arn,
+                            "assume_role_policy_document": trust_doc,
+                        },
+                        "Restrict the trust relationship to authorized service principals (e.g. ec2.amazonaws.com) or trusted AWS accounts only.",
+                        region=region,
+                    )
+                )
 
         # VULN-007: Inspect IAM Policies
         for policy in resources.iam_policies:

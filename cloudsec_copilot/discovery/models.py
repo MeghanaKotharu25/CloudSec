@@ -26,6 +26,9 @@ class S3BucketModel(BaseModel):
     acl_public: bool = False
     policy_public: bool = False
     encryption_enabled: bool = False
+    versioning_enabled: bool = False
+    website_enabled: bool = False
+    website_configuration: Optional[Dict[str, Any]] = None
     arn: Optional[str] = None
 
 class IAMRoleModel(BaseModel):
@@ -36,6 +39,8 @@ class IAMRoleModel(BaseModel):
     attached_policies: List[str] = Field(default_factory=list)
     inline_policies: List[str] = Field(default_factory=list)
     policy_documents: List[Any] = Field(default_factory=list)
+    assume_role_policy_document: Optional[Dict[str, Any]] = None
+    trust_allows_wildcard: bool = False
 
 class IAMPolicyModel(BaseModel):
     policy_name: str
