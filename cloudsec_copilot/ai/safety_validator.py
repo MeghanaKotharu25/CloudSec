@@ -25,6 +25,22 @@ class AISafetyValidator:
             "allowed_resource_types": {"iam", "iamrole", "iam_role"},
             "allowed_params": {"current_policy_arn", "replacement_policy"},
         },
+        "ENABLE_S3_ENCRYPTION": {
+            "allowed_resource_types": {"s3", "s3bucket", "s3_bucket"},
+            "allowed_params": {"sse_algorithm", "bucket_key_enabled"},
+        },
+        "ENABLE_S3_VERSIONING": {
+            "allowed_resource_types": {"s3", "s3bucket", "s3_bucket"},
+            "allowed_params": {"status"},
+        },
+        "DISABLE_S3_WEBSITE": {
+            "allowed_resource_types": {"s3", "s3bucket", "s3_bucket"},
+            "allowed_params": set(),
+        },
+        "RESTRICT_IAM_TRUST_POLICY": {
+            "allowed_resource_types": {"iam", "iamrole", "iam_role"},
+            "allowed_params": {"replacement_principal", "replacement_policy"},
+        },
     }
 
     # Prohibited dangerous keywords or command execution attempts
@@ -158,6 +174,41 @@ class AISafetyValidator:
                         if not all(act in self.APPROVED_LEAST_PRIVILEGE_ACTIONS for act in actions):
                             unapproved = [act for act in actions if act not in self.APPROVED_LEAST_PRIVILEGE_ACTIONS]
                             errors.append(f"IAM safety violation: Unapproved IAM actions in policy: {unapproved}.")
+
+        if action_name == "RESTRICT_IAM_TRUST_POLICY":
+            repl_principal = params.get("replacement_principal")
+            if repl_principal != "ec2.amazonaws.com":
+                errors.append(f"IAM trust safety violation: Expected replacement_principal 'ec2.amazonaws.com', received '{repl_principal}'.")
+
+            repl_policy = params.get("replacement_policy")
+            if not isinstance(repl_policy, dict):
+                errors.append("IAM trust safety violation: Replacement policy must be a dictionary.")
+            else:
+                stmts = repl_policy.get("Statement", [])
+                if not isinstance(stmts, list) or not stmts:
+                    errors.append("IAM trust safety violation: Replacement policy Statement must be a non-empty list.")
+                else:
+                    for stmt in stmts:
+                        if stmt.get("Effect") != "Allow":
+                            errors.append(f"IAM trust safety violation: Statement effect must be 'Allow', found '{stmt.get('Effect')}'.")
+                        princ = stmt.get("Principal")
+                        if princ == "*" or (isinstance(princ, dict) and (princ.get("AWS") == "*" or "*" in princ.get("AWS", []))):
+                            errors.append("IAM trust safety violation: Wildcard principal is strictly prohibited.")
+                        if isinstance(princ, dict) and princ.get("Service") != "ec2.amazonaws.com":
+                            errors.append(f"IAM trust safety violation: Allowed principal service is 'ec2.amazonaws.com', found '{princ.get('Service')}'.")
+                        act = stmt.get("Action")
+                        if act != "sts:AssumeRole":
+                            errors.append(f"IAM trust safety violation: Action must be 'sts:AssumeRole', found '{act}'.")
+
+        if action_name == "ENABLE_S3_ENCRYPTION":
+            algo = params.get("sse_algorithm", "AES256")
+            if algo not in {"AES256", "aws:kms"}:
+                errors.append(f"S3 encryption safety violation: Invalid sse_algorithm '{algo}'. Must be AES256 or aws:kms.")
+
+        if action_name == "ENABLE_S3_VERSIONING":
+            st = params.get("status")
+            if st != "Enabled":
+                errors.append(f"S3 versioning safety violation: Expected status 'Enabled', received '{st}'.")
 
         # G. DESTRUCTIVE ACTION & CODE INJECTION BLOCK
         serialized_action = str(planned_action)

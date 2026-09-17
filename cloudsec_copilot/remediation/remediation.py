@@ -19,6 +19,22 @@ class RemediationPlanner:
             "action": "REPLACE_IAM_POLICY",
             "resource_type": "iam",
         },
+        "RULE-S3-NO-ENCRYPTION": {
+            "action": "ENABLE_S3_ENCRYPTION",
+            "resource_type": "s3",
+        },
+        "RULE-S3-NO-VERSIONING": {
+            "action": "ENABLE_S3_VERSIONING",
+            "resource_type": "s3",
+        },
+        "RULE-S3-WEBSITE-ENABLED": {
+            "action": "DISABLE_S3_WEBSITE",
+            "resource_type": "s3",
+        },
+        "RULE-IAM-WILDCARD-TRUST": {
+            "action": "RESTRICT_IAM_TRUST_POLICY",
+            "resource_type": "iam",
+        },
     }
 
     def plan(
@@ -138,6 +154,124 @@ class RemediationPlanner:
                 "resource_type": "iam",
                 "resource_id": target,
                 "parameters": {"policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"},
+            }
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": action_dict,
+                "rollback": rollback_dict,
+                "safety_metadata": safety_metadata,
+            }
+
+        if rule_id == "RULE-S3-NO-ENCRYPTION":
+            action_dict = {
+                "action": "ENABLE_S3_ENCRYPTION",
+                "resource_type": "s3",
+                "resource_id": target,
+                "rule_id": rule_id,
+                "dry_run": dry_run,
+                "parameters": {
+                    "sse_algorithm": "AES256",
+                    "bucket_key_enabled": False,
+                },
+                "safety_metadata": safety_metadata,
+            }
+            rollback_dict = {
+                "action": "RESTORE_S3_ENCRYPTION",
+                "resource_type": "s3",
+                "resource_id": target,
+                "parameters": {},
+            }
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": action_dict,
+                "rollback": rollback_dict,
+                "safety_metadata": safety_metadata,
+            }
+
+        if rule_id == "RULE-S3-NO-VERSIONING":
+            action_dict = {
+                "action": "ENABLE_S3_VERSIONING",
+                "resource_type": "s3",
+                "resource_id": target,
+                "rule_id": rule_id,
+                "dry_run": dry_run,
+                "parameters": {
+                    "status": "Enabled",
+                },
+                "safety_metadata": safety_metadata,
+            }
+            rollback_dict = {
+                "action": "RESTORE_S3_VERSIONING",
+                "resource_type": "s3",
+                "resource_id": target,
+                "parameters": {"status": "Suspended"},
+            }
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": action_dict,
+                "rollback": rollback_dict,
+                "safety_metadata": safety_metadata,
+            }
+
+        if rule_id == "RULE-S3-WEBSITE-ENABLED":
+            action_dict = {
+                "action": "DISABLE_S3_WEBSITE",
+                "resource_type": "s3",
+                "resource_id": target,
+                "rule_id": rule_id,
+                "dry_run": dry_run,
+                "parameters": {},
+                "safety_metadata": safety_metadata,
+            }
+            rollback_dict = {
+                "action": "RESTORE_S3_WEBSITE",
+                "resource_type": "s3",
+                "resource_id": target,
+                "parameters": (finding_details.get("website_configuration") if finding_details else {}) or {},
+            }
+            return {
+                "rule_id": rule_id,
+                "target": target,
+                "dry_run": dry_run,
+                "action": action_dict,
+                "rollback": rollback_dict,
+                "safety_metadata": safety_metadata,
+            }
+
+        if rule_id == "RULE-IAM-WILDCARD-TRUST":
+            safe_trust_policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"Service": "ec2.amazonaws.com"},
+                        "Action": "sts:AssumeRole",
+                    }
+                ],
+            }
+            action_dict = {
+                "action": "RESTRICT_IAM_TRUST_POLICY",
+                "resource_type": "iam",
+                "resource_id": target,
+                "rule_id": rule_id,
+                "dry_run": dry_run,
+                "parameters": {
+                    "replacement_principal": "ec2.amazonaws.com",
+                    "replacement_policy": safe_trust_policy,
+                },
+                "safety_metadata": safety_metadata,
+            }
+            rollback_dict = {
+                "action": "RESTORE_IAM_TRUST_POLICY",
+                "resource_type": "iam",
+                "resource_id": target,
+                "parameters": {},
             }
             return {
                 "rule_id": rule_id,

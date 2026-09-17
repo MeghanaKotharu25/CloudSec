@@ -40,8 +40,8 @@ def test_s3_public_acl_detection():
     assert s3_findings[0]["resource_id"] == "acl-public-bucket"
     assert s3_findings[0]["region"] == "eu-west-1"
     assert s3_findings[0]["details"]["acl_public"] is True
-    # Bucket is encrypted, so no VULN-002
-    assert not any(f["id"] == "VULN-002" for f in findings)
+    # Bucket is encrypted, so no VULN-002 or VULN-008
+    assert not any(f["id"] in ("VULN-002", "VULN-008") for f in findings)
 
 
 def test_s3_public_policy_detection():
@@ -55,17 +55,18 @@ def test_s3_public_policy_detection():
                     acl_public=False,
                     policy_public=True,
                     encryption_enabled=False,
+                    versioning_enabled=True,
                 )
             ]
         ),
     )
     findings = Scanner().scan(inventory)
     vuln_001 = [f for f in findings if f["id"] == "VULN-001"]
-    vuln_002 = [f for f in findings if f["id"] == "VULN-002"]
+    vuln_008 = [f for f in findings if f["id"] in ("VULN-002", "VULN-008")]
     assert len(vuln_001) == 1
     assert vuln_001[0]["details"]["policy_public"] is True
-    assert len(vuln_002) == 1
-    assert vuln_002[0]["rule_id"] == "RULE-S3-NO-ENCRYPTION"
+    assert len(vuln_008) == 1
+    assert vuln_008[0]["rule_id"] == "RULE-S3-NO-ENCRYPTION"
     assert vuln_001[0]["region"] == "us-west-2"
 
 
@@ -80,6 +81,8 @@ def test_s3_secure_bucket():
                     acl_public=False,
                     policy_public=False,
                     encryption_enabled=True,
+                    versioning_enabled=True,
+                    website_enabled=False,
                 )
             ]
         ),

@@ -21,6 +21,10 @@ class Executor:
         "BLOCK_S3_PUBLIC_ACCESS",
         "REVOKE_SG_INGRESS",
         "REPLACE_IAM_POLICY",
+        "ENABLE_S3_ENCRYPTION",
+        "ENABLE_S3_VERSIONING",
+        "DISABLE_S3_WEBSITE",
+        "RESTRICT_IAM_TRUST_POLICY",
     }
 
     def __init__(self, audit_path: str = "audit_log.json"):
@@ -130,6 +134,73 @@ class Executor:
                     "inline_policies": inline,
                 })
 
+            elif action_name == "ENABLE_S3_ENCRYPTION":
+                s3 = self._get_client("s3")
+                enc_config = None
+                try:
+                    enc_resp = s3.get_bucket_encryption(Bucket=resource_id)
+                    enc_config = enc_resp.get("ServerSideEncryptionConfiguration", {})
+                except ClientError as e:
+                    enc_config = {"error": str(e)}
+
+                original_state.update({
+                    "resource_type": "s3",
+                    "resource_id": resource_id,
+                    "encryption_configuration": enc_config,
+                })
+
+            elif action_name == "ENABLE_S3_VERSIONING":
+                s3 = self._get_client("s3")
+                ver_status = "Suspended"
+                try:
+                    ver_resp = s3.get_bucket_versioning(Bucket=resource_id)
+                    ver_status = ver_resp.get("Status", "Suspended")
+                except ClientError as e:
+                    ver_status = f"error: {e}"
+
+                original_state.update({
+                    "resource_type": "s3",
+                    "resource_id": resource_id,
+                    "versioning_status": ver_status,
+                })
+
+            elif action_name == "DISABLE_S3_WEBSITE":
+                s3 = self._get_client("s3")
+                web_config = None
+                try:
+                    web_resp = s3.get_bucket_website(Bucket=resource_id)
+                    web_config = {
+                        "IndexDocument": web_resp.get("IndexDocument"),
+                        "ErrorDocument": web_resp.get("ErrorDocument"),
+                        "RoutingRules": web_resp.get("RoutingRules"),
+                    }
+                except ClientError as e:
+                    web_config = {"error": str(e)}
+
+                original_state.update({
+                    "resource_type": "s3",
+                    "resource_id": resource_id,
+                    "website_configuration": web_config,
+                })
+
+            elif action_name == "RESTRICT_IAM_TRUST_POLICY":
+                iam = self._get_client("iam")
+                trust_doc = None
+                try:
+                    role_resp = iam.get_role(RoleName=resource_id)
+                    trust_doc = role_resp.get("Role", {}).get("AssumeRolePolicyDocument")
+                    if isinstance(trust_doc, str):
+                        import urllib.parse
+                        trust_doc = json.loads(urllib.parse.unquote(trust_doc))
+                except ClientError as e:
+                    trust_doc = {"error": str(e)}
+
+                original_state.update({
+                    "resource_type": "iam",
+                    "resource_id": resource_id,
+                    "assume_role_policy_document": trust_doc,
+                })
+
         except (BotoCoreError, ClientError, OSError) as exc:
             original_state["capture_error"] = str(exc)
 
@@ -201,6 +272,71 @@ class Executor:
                         "reason": f"Policy '{current_policy}' is already not attached to IAM role '{resource_id}'.",
                     }
 
+            elif action_name == "ENABLE_S3_ENCRYPTION":
+                s3 = self._get_client("s3")
+                try:
+                    enc_resp = s3.get_bucket_encryption(Bucket=resource_id)
+                    rules = enc_resp.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
+                    if rules:
+                        return {
+                            "status": "ALREADY_SECURE",
+                            "reason": f"S3 bucket '{resource_id}' already has default encryption enabled.",
+                        }
+                except ClientError:
+                    pass
+
+            elif action_name == "ENABLE_S3_VERSIONING":
+                s3 = self._get_client("s3")
+                try:
+                    ver_resp = s3.get_bucket_versioning(Bucket=resource_id)
+                    if ver_resp.get("Status") == "Enabled":
+                        return {
+                            "status": "ALREADY_SECURE",
+                            "reason": f"S3 bucket '{resource_id}' already has versioning enabled.",
+                        }
+                except ClientError:
+                    pass
+
+            elif action_name == "DISABLE_S3_WEBSITE":
+                s3 = self._get_client("s3")
+                try:
+                    web_resp = s3.get_bucket_website(Bucket=resource_id)
+                    if not web_resp.get("IndexDocument"):
+                        return {
+                            "status": "ALREADY_SECURE",
+                            "reason": f"S3 bucket '{resource_id}' does not have website hosting enabled.",
+                        }
+                except ClientError as e:
+                    if e.response.get("Error", {}).get("Code") in ("NoSuchWebsiteConfiguration", "404"):
+                        return {
+                            "status": "ALREADY_SECURE",
+                            "reason": f"S3 bucket '{resource_id}' does not have website hosting enabled.",
+                        }
+
+            elif action_name == "RESTRICT_IAM_TRUST_POLICY":
+                iam = self._get_client("iam")
+                try:
+                    role_resp = iam.get_role(RoleName=resource_id)
+                    trust_doc = role_resp.get("Role", {}).get("AssumeRolePolicyDocument")
+                    if isinstance(trust_doc, str):
+                        import urllib.parse
+                        trust_doc = json.loads(urllib.parse.unquote(trust_doc))
+                    if isinstance(trust_doc, dict):
+                        has_wildcard = False
+                        for stmt in trust_doc.get("Statement", []):
+                            if isinstance(stmt, dict) and stmt.get("Effect") == "Allow":
+                                p = stmt.get("Principal")
+                                if p == "*" or (isinstance(p, dict) and (p.get("AWS") == "*" or "*" in p.get("AWS", []))):
+                                    has_wildcard = True
+                                    break
+                        if not has_wildcard:
+                            return {
+                                "status": "ALREADY_SECURE",
+                                "reason": f"IAM role '{resource_id}' trust policy does not contain wildcard principal.",
+                            }
+                except ClientError:
+                    pass
+
         except (BotoCoreError, ClientError, OSError):
             pass
 
@@ -262,6 +398,55 @@ class Executor:
                 iam.put_role_policy(
                     RoleName=resource_id,
                     PolicyName="CloudSecLeastPrivilegeReplacement",
+                    PolicyDocument=json.dumps(replacement_policy),
+                )
+                return {"status": "APPLIED", "service": "iam", "resource_id": resource_id}
+
+            if action_name == "ENABLE_S3_ENCRYPTION":
+                s3 = self._get_client("s3")
+                algo = params.get("sse_algorithm", "AES256")
+                s3.put_bucket_encryption(
+                    Bucket=resource_id,
+                    ServerSideEncryptionConfiguration={
+                        "Rules": [
+                            {
+                                "ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": algo},
+                                "BucketKeyEnabled": params.get("bucket_key_enabled", False),
+                            }
+                        ]
+                    },
+                )
+                return {"status": "APPLIED", "service": "s3", "resource_id": resource_id}
+
+            if action_name == "ENABLE_S3_VERSIONING":
+                s3 = self._get_client("s3")
+                s3.put_bucket_versioning(
+                    Bucket=resource_id,
+                    VersioningConfiguration={"Status": "Enabled"},
+                )
+                return {"status": "APPLIED", "service": "s3", "resource_id": resource_id}
+
+            if action_name == "DISABLE_S3_WEBSITE":
+                s3 = self._get_client("s3")
+                s3.delete_bucket_website(Bucket=resource_id)
+                return {"status": "APPLIED", "service": "s3", "resource_id": resource_id}
+
+            if action_name == "RESTRICT_IAM_TRUST_POLICY":
+                iam = self._get_client("iam")
+                replacement_policy = params.get("replacement_policy")
+                if not replacement_policy:
+                    replacement_policy = {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": {"Service": "ec2.amazonaws.com"},
+                                "Action": "sts:AssumeRole",
+                            }
+                        ],
+                    }
+                iam.update_assume_role_policy(
+                    RoleName=resource_id,
                     PolicyDocument=json.dumps(replacement_policy),
                 )
                 return {"status": "APPLIED", "service": "iam", "resource_id": resource_id}
@@ -424,6 +609,70 @@ class Executor:
                     iam.delete_role_policy(RoleName=resource_id, PolicyName="CloudSecLeastPrivilegeReplacement")
                 except ClientError:
                     pass
+                rollback_result = {"status": "RESTORED", "service": "iam", "resource_id": resource_id}
+
+            elif action_name == "ENABLE_S3_ENCRYPTION":
+                s3 = self._get_client("s3")
+                enc_config = original_state.get("encryption_configuration")
+                if enc_config and isinstance(enc_config, dict) and enc_config.get("Rules"):
+                    s3.put_bucket_encryption(
+                        Bucket=resource_id,
+                        ServerSideEncryptionConfiguration=enc_config,
+                    )
+                else:
+                    s3.delete_bucket_encryption(Bucket=resource_id)
+                rollback_result = {"status": "RESTORED", "service": "s3", "resource_id": resource_id}
+
+            elif action_name == "ENABLE_S3_VERSIONING":
+                s3 = self._get_client("s3")
+                orig_status = original_state.get("versioning_status", "Suspended")
+                if orig_status in ("Enabled", "Suspended"):
+                    s3.put_bucket_versioning(
+                        Bucket=resource_id,
+                        VersioningConfiguration={"Status": orig_status if orig_status != "Enabled" else "Suspended"},
+                    )
+                else:
+                    s3.put_bucket_versioning(
+                        Bucket=resource_id,
+                        VersioningConfiguration={"Status": "Suspended"},
+                    )
+                rollback_result = {"status": "RESTORED", "service": "s3", "resource_id": resource_id}
+
+            elif action_name == "DISABLE_S3_WEBSITE":
+                s3 = self._get_client("s3")
+                orig_web = original_state.get("website_configuration")
+                if not orig_web or orig_web.get("error"):
+                    orig_web = audit_record.get("parameters", {})
+                if orig_web and isinstance(orig_web, dict) and orig_web.get("IndexDocument"):
+                    web_cfg = {"IndexDocument": orig_web.get("IndexDocument")}
+                    if orig_web.get("ErrorDocument"):
+                        web_cfg["ErrorDocument"] = orig_web.get("ErrorDocument")
+                    s3.put_bucket_website(Bucket=resource_id, WebsiteConfiguration=web_cfg)
+                else:
+                    s3.put_bucket_website(
+                        Bucket=resource_id,
+                        WebsiteConfiguration={"IndexDocument": {"Suffix": "index.html"}},
+                    )
+                rollback_result = {"status": "RESTORED", "service": "s3", "resource_id": resource_id}
+
+            elif action_name == "RESTRICT_IAM_TRUST_POLICY":
+                iam = self._get_client("iam")
+                orig_trust = original_state.get("assume_role_policy_document")
+                if not orig_trust or orig_trust.get("error"):
+                    orig_trust = {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": "*",
+                                "Action": "sts:AssumeRole",
+                            }
+                        ],
+                    }
+                iam.update_assume_role_policy(
+                    RoleName=resource_id,
+                    PolicyDocument=json.dumps(orig_trust),
+                )
                 rollback_result = {"status": "RESTORED", "service": "iam", "resource_id": resource_id}
 
             else:

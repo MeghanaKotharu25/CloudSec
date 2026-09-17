@@ -90,6 +90,17 @@ def scan(discover_only, endpoint_url, output, visualize, graph_json, explain):
     graph_table.add_row("Overall Posture Risk Score", f"{risk_report.get('overall_risk_score', 0.0)}/10")
     console.print(graph_table)
 
+    # Discovered Graph Topology Evidence
+    console.print("\n[bold cyan]Discovered Graph Topology (Live Inventory):[/bold cyan]")
+    console.print("[bold yellow]Graph Nodes:[/bold yellow]")
+    for n in sorted(graph.nodes):
+        console.print(f"  • {n}")
+    console.print("[bold yellow]Graph Edges & Security Relationships:[/bold yellow]")
+    for u, v, d in graph.edges(data=True):
+        rel = d.get("relationship", "ASSOCIATED_WITH")
+        console.print(f"  • {u} -> {v} [{rel}]")
+    console.print("")
+
     # Optional Graph Visualization Export
     if visualize:
         try:
@@ -247,14 +258,33 @@ def scan(discover_only, endpoint_url, output, visualize, graph_json, explain):
 
 @cli.command()
 @click.option("--id", "vuln_id", required=True, help="Vulnerability ID to remediate (e.g. VULN-001).")
+@click.option("--target", default=None, help="Target resource ID if multiple findings exist.")
 @click.option("--yes", "-y", is_flag=True, help="Skip interactive approval prompt.")
-def fix(vuln_id, yes):
+def fix(vuln_id, target, yes):
     """Generate a validated remediation plan, request approval, execute it, and rescan."""
     console.print(Panel.fit(f"[bold red]Remediation Workflow[/bold red] - Finding: [cyan]{vuln_id}[/cyan]", border_style="red"))
     collector = DiscoveryCollector()
     snapshot = collector.collect_all()
     findings = Scanner().scan(snapshot)
-    finding = next((item for item in findings if item["id"] == vuln_id), None)
+
+    matching = [item for item in findings if item["id"] == vuln_id]
+    if target:
+        finding = next((item for item in matching if item.get("resource_id") == target), None)
+    elif vuln_id == "VULN-009":
+        pref = next((m for m in matching if "versioning" in m.get("resource_id", "")), None)
+        finding = pref or (matching[0] if matching else None)
+    elif vuln_id == "VULN-008":
+        pref = next((m for m in matching if "unencrypted" in m.get("resource_id", "")), None)
+        finding = pref or (matching[0] if matching else None)
+    elif vuln_id == "VULN-010":
+        pref = next((m for m in matching if "website" in m.get("resource_id", "")), None)
+        finding = pref or (matching[0] if matching else None)
+    elif vuln_id == "VULN-011":
+        pref = next((m for m in matching if "TrustRole" in m.get("resource_id", "")), None)
+        finding = pref or (matching[0] if matching else None)
+    else:
+        finding = matching[0] if matching else None
+
     if not finding:
         console.print(f"[bold red]Finding {vuln_id} was not found in the current inventory.[/bold red]")
         return
@@ -330,7 +360,7 @@ def fix(vuln_id, yes):
     console.print("[bold yellow][*] Running Post-Remediation Verification Rescan...[/bold yellow]")
     after_snapshot = collector.collect_all()
     after_findings = Scanner().scan(after_snapshot)
-    verification = Verifier().verify_finding_removed([finding], after_findings, vuln_id)
+    verification = Verifier().verify_finding_removed([finding], after_findings, vuln_id, resource_id=finding.get("resource_id"))
 
     # Update audit record with verification result
     audit_rec = result.get("audit_record")
@@ -481,7 +511,7 @@ def rollback(vuln_id, audit_id, last, yes):
     after_findings = Scanner().scan(after_snapshot)
 
     f_id = target_record.get("finding_id")
-    verification = Verifier().verify_rollback([], after_findings, f_id)
+    verification = Verifier().verify_rollback([], after_findings, f_id, resource_id=target_record.get("resource_id"))
     if verification["status"] == "ROLLBACK_VERIFIED":
         console.print(f"[bold green][+] Rollback Verified: {f_id} restored as expected in live scan.[/bold green]")
     else:

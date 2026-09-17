@@ -64,7 +64,15 @@ class CloudGraphBuilder:
         for bucket in resources.s3_buckets:
             bucket_node = f"S3:{bucket.name}"
             vulns = vulnerable_resources.get(bucket.name, [])
-            is_vuln = bool(vulns) or bucket.is_public or bucket.acl_public or bucket.policy_public or not bucket.encryption_enabled
+            is_vuln = (
+                bool(vulns)
+                or bucket.is_public
+                or bucket.acl_public
+                or bucket.policy_public
+                or not bucket.encryption_enabled
+                or not bucket.versioning_enabled
+                or bucket.website_enabled
+            )
             graph.add_node(
                 bucket_node,
                 id=bucket_node,
@@ -74,6 +82,9 @@ class CloudGraphBuilder:
                 arn=bucket.arn,
                 is_public=bucket.is_public or bucket.acl_public or bucket.policy_public,
                 encryption_enabled=bucket.encryption_enabled,
+                versioning_enabled=bucket.versioning_enabled,
+                website_enabled=bucket.website_enabled,
+                website_configuration=bucket.website_configuration,
                 is_vulnerable=is_vuln,
                 vulnerabilities=vulns,
             )
@@ -86,6 +97,15 @@ class CloudGraphBuilder:
                     security_relevant=True,
                     reason=f"S3 bucket '{bucket.name}' allows unrestricted public access.",
                     is_sensitive=True,
+                )
+            elif bucket.website_enabled:
+                graph.add_edge(
+                    "INTERNET",
+                    bucket_node,
+                    relationship="WEBSITE_HOSTING",
+                    security_relevant=True,
+                    reason=f"S3 bucket '{bucket.name}' has static website hosting enabled over HTTP.",
+                    is_sensitive=False,
                 )
 
         # 3. Security Groups
@@ -216,7 +236,7 @@ class CloudGraphBuilder:
         for role in resources.iam_roles:
             role_node = f"IAM:{role.role_name}"
             vulns = vulnerable_resources.get(role.role_name, [])
-            is_vuln = bool(vulns) or role.is_admin
+            is_vuln = bool(vulns) or role.is_admin or role.trust_allows_wildcard
             graph.add_node(
                 role_node,
                 id=role_node,
@@ -225,9 +245,31 @@ class CloudGraphBuilder:
                 resource=role.role_name,
                 arn=role.arn,
                 is_admin=role.is_admin,
+                assume_role_policy_document=role.assume_role_policy_document,
+                trust_allows_wildcard=role.trust_allows_wildcard,
                 is_vulnerable=is_vuln,
                 vulnerabilities=vulns,
             )
+
+            # Wildcard trust relationship
+            if role.trust_allows_wildcard:
+                if "ANY_PRINCIPAL" not in graph:
+                    graph.add_node(
+                        "ANY_PRINCIPAL",
+                        id="ANY_PRINCIPAL",
+                        type="PRINCIPAL",
+                        label="ANY_PRINCIPAL",
+                        resource="wildcard_principal",
+                        is_vulnerable=True,
+                        vulnerabilities=[],
+                    )
+                graph.add_edge(
+                    "ANY_PRINCIPAL",
+                    role_node,
+                    relationship="WILDCARD_TRUST",
+                    security_relevant=True,
+                    reason=f"IAM role '{role.role_name}' trust policy permits wildcard principal ('*') assumption.",
+                )
 
             # Attached policies
             for policy in role.attached_policies:
@@ -512,36 +554,44 @@ class CloudGraphBuilder:
         if ntype == "INTERNET":
             return ("INTERNET", "Attack Origin", "", False)
 
+        vuln_badge = f"[!] {formatted_vulns}" if formatted_vulns else ("[!] VULNERABLE" if is_vuln else "")
+
         if ntype == "S3":
-            badge = f"[!] {formatted_vulns}" if formatted_vulns else ("[!] VULN-001" if is_vuln else "")
-            return ("S3 BUCKET", name, badge, is_vuln)
+            return ("S3 BUCKET", name, vuln_badge, is_vuln)
 
         if ntype == "SECURITY_GROUP":
             g_name = attrs.get("group_name") or name
-            badge = f"[!] {formatted_vulns}" if formatted_vulns else ("[!] VULN-003, VULN-006" if is_vuln else "")
-            return ("SECURITY GROUP", g_name, badge, is_vuln)
+            return ("SECURITY GROUP", g_name, vuln_badge, is_vuln)
 
         if ntype == "EC2":
             ec2_name = attrs.get("name") or attrs.get("resource") or name
-            badge = f"[!] {formatted_vulns}" if formatted_vulns else ("[!] VULN-004" if is_vuln else "")
-            return ("EC2 INSTANCE", ec2_name, badge, is_vuln)
+            return ("EC2 INSTANCE", ec2_name, vuln_badge, is_vuln)
 
         if ntype == "IAM_ROLE":
-            badge = f"[!] {formatted_vulns}" if formatted_vulns else ("[!] VULN-005, VULN-007" if is_vuln else "")
-            return ("IAM ROLE", name, badge, is_vuln)
+            return ("IAM ROLE", name, vuln_badge, is_vuln)
 
         if ntype == "IAM_POLICY":
             is_admin = attrs.get("is_admin", False) or "AdministratorAccess" in name
             header = "ADMINISTRATOR ACCESS" if is_admin else "IAM POLICY"
             p_name = "AdministratorAccess" if "AdministratorAccess" in name else name
-            badge = "[!] *:*" if is_admin else (f"[!] {formatted_vulns}" if formatted_vulns else "")
+            if formatted_vulns:
+                badge = f"[!] {formatted_vulns}"
+            elif is_admin:
+                badge = "[!] *:*"
+            elif is_vuln:
+                badge = "[!] VULNERABLE"
+            else:
+                badge = ""
             return (header, p_name, badge, is_admin or is_vuln)
 
         if ntype == "RDS":
-            badge = f"[!] {formatted_vulns}" if formatted_vulns else ("[!] VULN-RDS" if is_vuln else "")
-            return ("RDS DATABASE", name, badge, is_vuln)
+            return ("RDS DATABASE", name, vuln_badge, is_vuln)
 
-        return (ntype, name, f"[!] {formatted_vulns}" if formatted_vulns else "", is_vuln)
+        if ntype == "PRINCIPAL":
+            badge = f"[!] {formatted_vulns}" if formatted_vulns else "[!] WILDCARD TRUST"
+            return ("EXTERNAL PRINCIPAL", name, badge, True)
+
+        return (ntype, name, vuln_badge, is_vuln)
 
     def export_visualization(self, graph: nx.DiGraph, output_path: str) -> str:
         """Render ONE simple, presentation-ready attack graph communicating the discovered attack chain."""
@@ -550,13 +600,22 @@ class CloudGraphBuilder:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        # 1. Filter nodes: display only resources genuinely involved in the attack chain
+        # 1. Filter nodes: dynamically include all vulnerable resources, attack paths, and security context
         relevant_nodes: Set[str] = {"INTERNET"} if "INTERNET" in graph else set()
 
-        for n in graph.nodes:
+        # Always include every genuinely vulnerable resource node (excluding remediation replacement policies)
+        for n, d in graph.nodes(data=True):
             if n == "INTERNET":
                 continue
-            # Exclude remediation replacement policies
+            if "LeastPrivilege" in n or "Replacement" in n:
+                continue
+            if d.get("is_vulnerable", False):
+                relevant_nodes.add(n)
+
+        # Include all nodes that participate in an attack path from INTERNET
+        for n in list(graph.nodes):
+            if n == "INTERNET":
+                continue
             if "LeastPrivilege" in n or "Replacement" in n:
                 continue
             paths = self.find_attack_paths(graph, n)
@@ -564,14 +623,33 @@ class CloudGraphBuilder:
                 for p in paths:
                     relevant_nodes.update(p["path"])
 
-        # Also include downstream reached nodes from any relevant node (e.g. EC2 -> IAM Role -> Policy)
-        for n in list(relevant_nodes):
-            for succ in graph.successors(n):
-                if "LeastPrivilege" in succ or "Replacement" in succ:
-                    continue
-                edge_data = graph.get_edge_data(n, succ) or {}
-                if edge_data.get("security_relevant", True):
-                    relevant_nodes.add(succ)
+        # Include security-relevant downstream (successors) and upstream (predecessors) for complete context
+        changed = True
+        while changed:
+            changed = False
+            for n in list(relevant_nodes):
+                for succ in graph.successors(n):
+                    if succ in relevant_nodes:
+                        continue
+                    if "LeastPrivilege" in succ or "Replacement" in succ:
+                        continue
+                    edge_data = graph.get_edge_data(n, succ) or {}
+                    if edge_data.get("security_relevant", True):
+                        relevant_nodes.add(succ)
+                        changed = True
+
+                for pred in graph.predecessors(n):
+                    if pred in relevant_nodes:
+                        continue
+                    if "LeastPrivilege" in pred or "Replacement" in pred:
+                        continue
+                    edge_data = graph.get_edge_data(pred, n) or {}
+                    if edge_data.get("security_relevant", True):
+                        pred_data = graph.nodes[pred]
+                        if pred_data.get("type") == "SECURITY_GROUP" and not pred_data.get("is_vulnerable") and graph.degree(pred) <= 1:
+                            continue
+                        relevant_nodes.add(pred)
+                        changed = True
 
         # Fallback for isolated lab graphs where no complete attack path from INTERNET exists yet
         if len(relevant_nodes) <= 1:
@@ -583,57 +661,84 @@ class CloudGraphBuilder:
                     continue
                 relevant_nodes.add(n)
 
-        # Determine if an EC2 instance is part of the visualization
-        has_ec2 = any(graph.nodes[n].get("type") == "EC2" for n in relevant_nodes)
+        # 2. Group nodes by resource type for deterministic layout calculation
+        type_groups: Dict[str, List[str]] = {
+            "INTERNET": [],
+            "S3": [],
+            "SECURITY_GROUP": [],
+            "EC2": [],
+            "IAM_ROLE": [],
+            "IAM_POLICY": [],
+            "RDS": [],
+            "PRINCIPAL": [],
+            "OTHER": [],
+        }
 
-        # 2. Determine Top-to-Bottom 5-Row Layout Coordinates
+        for n in relevant_nodes:
+            ntype = graph.nodes[n].get("type", "OTHER")
+            if ntype in type_groups:
+                type_groups[ntype].append(n)
+            else:
+                type_groups["OTHER"].append(n)
+
+        # 3. Determine Top-to-Bottom Layout Coordinates (Deterministic, Non-overlapping)
         pos: Dict[str, Tuple[float, float]] = {}
 
+        def distribute(nodes: List[str], x_center: float, y_base: float, max_span: float = 0.44) -> None:
+            n = len(nodes)
+            if n == 0:
+                return
+            if n == 1:
+                pos[nodes[0]] = (x_center, y_base)
+                return
+            step = min(0.22, max_span / max(1, n - 1))
+            for i, node in enumerate(sorted(nodes)):
+                offset = (i - (n - 1) / 2.0) * step
+                y_offset = (0.03 if (i % 2 == 1) else -0.03) if (n >= 3 and step < 0.18) else 0.0
+                pos[node] = (round(x_center + offset, 4), round(y_base + y_offset, 4))
+
+        has_ec2 = len(type_groups["EC2"]) > 0
+
+        # Row 0: INTERNET
+        distribute(type_groups["INTERNET"], x_center=0.50, y_base=0.90, max_span=0.30)
+
         if has_ec2:
-            # Row 1: INTERNET (Attack Origin)
-            # Row 2: S3 BUCKET (independent branch) and SECURITY GROUP
-            # Row 3: EC2 INSTANCE
-            # Row 4: IAM ROLE
-            # Row 5: ADMINISTRATOR ACCESS
-            for n in relevant_nodes:
-                ntype = graph.nodes[n].get("type")
-                if ntype == "INTERNET":
-                    pos[n] = (0.48, 0.88)
-                elif ntype == "S3":
-                    pos[n] = (0.24, 0.69)
-                elif ntype == "SECURITY_GROUP":
-                    pos[n] = (0.72, 0.69)
-                elif ntype == "EC2":
-                    pos[n] = (0.72, 0.49)
-                elif ntype == "IAM_ROLE":
-                    pos[n] = (0.72, 0.29)
-                elif ntype == "IAM_POLICY":
-                    pos[n] = (0.72, 0.09)
+            # Row 1: S3 Buckets (left) and Security Groups (right)
+            distribute(type_groups["S3"], x_center=0.24, y_base=0.70, max_span=0.42)
+            distribute(type_groups["SECURITY_GROUP"], x_center=0.74, y_base=0.70, max_span=0.42)
+
+            # Row 2: RDS (left) and EC2 Instances (right)
+            distribute(type_groups["RDS"], x_center=0.24, y_base=0.50, max_span=0.40)
+            distribute(type_groups["EC2"], x_center=0.74, y_base=0.50, max_span=0.42)
+
+            # Row 3: External Principals (left) and IAM Roles (right)
+            distribute(type_groups["PRINCIPAL"], x_center=0.28, y_base=0.30, max_span=0.36)
+            distribute(type_groups["IAM_ROLE"], x_center=0.72, y_base=0.30, max_span=0.44)
+
+            # Row 4: IAM Policies / Admin Privileges
+            distribute(type_groups["IAM_POLICY"], x_center=0.72, y_base=0.10, max_span=0.44)
         else:
-            # Isolated lab layout (without EC2 instance)
-            for n in relevant_nodes:
-                ntype = graph.nodes[n].get("type")
-                if ntype == "INTERNET":
-                    pos[n] = (0.48, 0.88)
-                elif ntype == "S3":
-                    pos[n] = (0.24, 0.66)
-                elif ntype == "SECURITY_GROUP":
-                    pos[n] = (0.72, 0.66)
-                elif ntype == "IAM_ROLE":
-                    pos[n] = (0.72, 0.40)
-                elif ntype == "IAM_POLICY":
-                    pos[n] = (0.72, 0.16)
+            # Isolated lab layout (without EC2 instances)
+            distribute(type_groups["S3"], x_center=0.24, y_base=0.68, max_span=0.42)
+            distribute(type_groups["SECURITY_GROUP"], x_center=0.74, y_base=0.68, max_span=0.42)
+            distribute(type_groups["RDS"], x_center=0.24, y_base=0.40, max_span=0.40)
+            distribute(type_groups["PRINCIPAL"], x_center=0.28, y_base=0.40, max_span=0.36)
+            distribute(type_groups["IAM_ROLE"], x_center=0.72, y_base=0.40, max_span=0.44)
+            distribute(type_groups["IAM_POLICY"], x_center=0.72, y_base=0.12, max_span=0.44)
+
+        # Other unclassified nodes
+        distribute(type_groups["OTHER"], x_center=0.50, y_base=0.50, max_span=0.50)
 
         # Fallback for any unpositioned node
         for n in relevant_nodes:
             if n not in pos:
                 pos[n] = (0.50, 0.50)
 
-        fig, ax = plt.subplots(figsize=(10.5, 11), dpi=200)
+        fig, ax = plt.subplots(figsize=(11.5, 11), dpi=200)
         ax.set_facecolor("#ffffff")
         fig.patch.set_facecolor("#ffffff")
 
-        # 3. Draw Directional Arrows and Short Meaningful Edge Labels
+        # 4. Draw Directional Arrows and Short Meaningful Edge Labels
         for u, v, d in graph.edges(data=True):
             if u not in pos or v not in pos or u not in relevant_nodes or v not in relevant_nodes:
                 continue
@@ -645,7 +750,7 @@ class CloudGraphBuilder:
 
             # Determine short edge label and arrow styling
             if u_type == "INTERNET" and v_type == "S3":
-                edge_label = "PUBLIC ACCESS"
+                edge_label = "PUBLIC ACCESS" if d.get("relationship") == "PUBLIC_ACCESS" else "WEBSITE HOSTING"
                 is_red = True
             elif u_type == "INTERNET" and v_type == "SECURITY_GROUP":
                 ports = d.get("ports", [])
@@ -665,6 +770,9 @@ class CloudGraphBuilder:
             elif u_type == "IAM_ROLE" and v_type == "IAM_POLICY":
                 edge_label = "GRANTS *:*" if (d.get("is_admin") or "AdministratorAccess" in v) else "GRANTS PERMISSION"
                 is_red = False
+            elif d.get("relationship") == "WILDCARD_TRUST" or u_type == "PRINCIPAL":
+                edge_label = "WILDCARD TRUST"
+                is_red = True
             else:
                 edge_label = d.get("relationship", "").replace("_", " ")
                 is_red = d.get("security_relevant", False)
@@ -712,7 +820,7 @@ class CloudGraphBuilder:
                 zorder=5,
             )
 
-        # 4. Draw Simple Rectangular Rounded Node Cards
+        # 5. Draw Simple Rectangular Rounded Node Cards
         for n in relevant_nodes:
             if n not in pos:
                 continue
@@ -749,7 +857,7 @@ class CloudGraphBuilder:
                 zorder=4,
             )
 
-        # 5. Header Title
+        # 6. Header Title
         ax.text(
             0.50,
             0.965,

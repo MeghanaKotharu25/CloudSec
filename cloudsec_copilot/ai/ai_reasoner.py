@@ -126,7 +126,48 @@ class AIReasoner:
         title = finding.get("title", "Unspecified cloud finding")
         resource_type = (finding.get("resource_type") or "").lower()
 
-        if resource_type.startswith("s3"):
+        rule_id = finding.get("rule_id", "")
+        if rule_id == "RULE-S3-NO-ENCRYPTION":
+            action = {
+                "action": "ENABLE_S3_ENCRYPTION",
+                "resource_type": "s3",
+                "resource_id": resource,
+                "parameters": {"sse_algorithm": "AES256", "bucket_key_enabled": False},
+            }
+        elif rule_id == "RULE-S3-NO-VERSIONING":
+            action = {
+                "action": "ENABLE_S3_VERSIONING",
+                "resource_type": "s3",
+                "resource_id": resource,
+                "parameters": {"status": "Enabled"},
+            }
+        elif rule_id == "RULE-S3-WEBSITE-ENABLED":
+            action = {
+                "action": "DISABLE_S3_WEBSITE",
+                "resource_type": "s3",
+                "resource_id": resource,
+                "parameters": {},
+            }
+        elif rule_id == "RULE-IAM-WILDCARD-TRUST":
+            action = {
+                "action": "RESTRICT_IAM_TRUST_POLICY",
+                "resource_type": "iam",
+                "resource_id": resource,
+                "parameters": {
+                    "replacement_principal": "ec2.amazonaws.com",
+                    "replacement_policy": {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": {"Service": "ec2.amazonaws.com"},
+                                "Action": "sts:AssumeRole",
+                            }
+                        ],
+                    },
+                },
+            }
+        elif resource_type.startswith("s3"):
             action = {
                 "action": "BLOCK_S3_PUBLIC_ACCESS",
                 "resource_type": "s3",
