@@ -190,13 +190,13 @@ Eliminates alert fatigue by prioritizing reachable, exploitable assets over isol
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
 | **Language** | Python 3.11 / 3.12 | Core application runtime |
-| **CLI Framework** | Typer + Rich | Interactive command-line interface & styled tables |
+| **CLI Framework** | Click + Rich | Interactive command-line interface & styled tables |
 | **Cloud SDK** | Boto3 | AWS API integration for discovery and remediation |
 | **Graph Intelligence** | NetworkX + Matplotlib | Attack graph modeling, path traversal & PNG rendering |
 | **Data Validation** | Pydantic v2 | Strict JSON schema normalization & validation |
 | **AI Reasoning** | OpenRouter API / LLM | Contextual root cause and impact reasoning |
 | **Cloud Emulation** | LocalStack + Docker | Isolated, reproducible, zero-cost AWS testbed |
-| **Quality Assurance** | pytest (98 tests) | Unit, graph integration, and remediation testing |
+| **Quality Assurance** | pytest (100 tests) | Unit, graph integration, and remediation testing |
 
 ---
 
@@ -236,36 +236,29 @@ python scripts/setup_vulnerable_lab.py
 
 ### 3. Run Automated Tests
 
+> Run pytest from the **repository root** (not from `scripts/`), otherwise no tests are collected.
+
 ```bash
-# Run the complete test suite (98 passing tests)
+# Full suite (100 tests) - requires LocalStack running for the 2 live tests
 pytest -q
+
+# Offline suite (98 tests) - skips the 2 live LocalStack tests
+pytest -q -k "not test_demo_pipeline_end_to_end and not test_21_live_localstack_closed_loop_pipeline"
 ```
 
 ### 4. CLI Command Reference
 
 #### Discover & Scan
 ```bash
-python -m cloudsec_copilot.cli.main scan
+python -m cloudsec_copilot.cli.main scan --explain
 ```
-*Outputs styled Rich table of findings prioritized by contextual risk scores (0-10).*
+*Discovers resources and prints findings ranked by risk score, with score breakdowns.*
 
-#### Generate Attack Graph
+#### Scan + Export Attack Graph
 ```bash
-python -m cloudsec_copilot.cli.main graph --output attack_graph.png
+python -m cloudsec_copilot.cli.main scan --visualize attack_graph.png --graph-json attack_graph.json
 ```
-*Traces multi-hop attack paths and saves visualization to `attack_graph.png` and `attack_graph.json`.*
-
-#### AI Contextual Reasoning
-```bash
-python -m cloudsec_copilot.cli.main reason --id VULN-001
-```
-*Invokes OpenRouter LLM for plain-English root cause, business impact, and fix guidance.*
-
-#### Dry-Run Remediation Preview
-```bash
-python -m cloudsec_copilot.cli.main fix --id VULN-001 --dry-run
-```
-*Simulates execution and prints exact Boto3 payloads without mutating cloud state.*
+*Saves the attack graph image and the graph topology/attack paths as JSON.*
 
 #### Guarded Remediation Execution
 ```bash
@@ -285,15 +278,22 @@ python -m cloudsec_copilot.cli.main rollback --id VULN-001 --yes
 ```
 *Restores pre-remediation configuration from audit log and verifies state reversal.*
 
+#### Fix All Findings / Generate Report
+```bash
+python -m cloudsec_copilot.cli.main fix-all --yes
+python -m cloudsec_copilot.cli.main report --format markdown --output scan_report.md
+```
+*Remediates every supported finding in one run; exports a JSON, Markdown, or HTML report.*
+
 ---
 
-## 7. Automated Test Suite (98 Passing Tests)
+## 7. Automated Test Suite (100 Passing Tests)
 
 Our test suite covers all components across unit and integration boundaries:
 
 ```bash
 ============================= test session starts =============================
-collected 100 items / 2 deselected / 98 selected
+collected 100 items
 
 cloudsec_copilot/tests/test_discovery.py ......                          [  6%]
 cloudsec_copilot/tests/test_phase1_detection.py ..........               [ 16%]
@@ -304,7 +304,7 @@ cloudsec_copilot/tests/test_phase3_remediation.py ....................   [ 85%]
 cloudsec_copilot/tests/test_security_pipeline.py ........                [ 93%]
 tests/test_discovery.py ......                                           [100%]
 
-====================== 98 passed, 2 deselected in 52.00s ======================
+============================ 100 passed in 14.92s =============================
 ```
 
 ---

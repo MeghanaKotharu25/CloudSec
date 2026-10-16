@@ -190,7 +190,7 @@ Our complete codebase, test suite, and infrastructure scripts are fully implemen
     # 3 Stat Cards across top
     stats = [
         ("10 CORE MODULES", "Discovery, Graph, Risk, AI Reasoner, Safety Validator, Executor, Rollback, Verifier, Audit, CLI", COLOR_ACCENT_BLUE),
-        ("98 PASSING TESTS", "100% test coverage across Unit, Graph Integration, Extended Vulns, and Remediation Pipelines", COLOR_ACCENT_GREEN),
+        ("100 PASSING TESTS", "Automated coverage across Unit, Graph Integration, Extended Vulns, Remediation, and live LocalStack pipelines", COLOR_ACCENT_GREEN),
         ("ZERO CLOUD COST", "Emulated local AWS environment powered by LocalStack & Docker for safe reproducible evaluation", COLOR_ACCENT_CYAN),
     ]
     for i, (title, desc, col) in enumerate(stats):
@@ -1160,7 +1160,7 @@ Only when the vulnerability is confirmed absent from the delta scan does the sys
     # ==========================================
     s17 = prs.slides.add_slide(blank_layout)
     set_slide_background(s17)
-    add_header(s17, "Component Deep Dive 11", "Interactive CLI & Developer Experience", "cloudsec_copilot/cli/main.py — Built with Typer, Rich tables, and interactive prompts")
+    add_header(s17, "Component Deep Dive 11", "Interactive CLI & Developer Experience", "cloudsec_copilot/cli/main.py — Built with Click, Rich tables, and interactive prompts")
 
     add_card(s17, Inches(0.8), Inches(1.8), Inches(5.7), Inches(4.9))
     tb_l = s17.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(5.3), Inches(4.5))
@@ -1173,12 +1173,12 @@ Only when the vulnerability is confirmed absent from the delta scan does the sys
     p.font.color.rgb = COLOR_ACCENT_BLUE
     p.space_after = Pt(8)
     cli_cmds = [
-        ("cloudsec scan", "Executes full discovery, deterministic scan, and outputs styled Rich tables with risk scores."),
-        ("cloudsec graph", "Generates NetworkX attack graph, prints attack paths, and exports attack_graph.png / .json."),
-        ("cloudsec reason --id <ID>", "Invokes AI reasoner for deep impact analysis, root-cause explanation, and fix guidance."),
-        ("cloudsec fix --id <ID>", "Executes safe remediation with safety validation, state snapshotting, and approval prompts."),
-        ("cloudsec rollback --id <ID>", "Safely restores the exact pre-remediation configuration using audit trail data."),
-        ("cloudsec verify", "Runs delta rescan to confirm resolution across all flagged vulnerabilities.")
+        ("cloudsec scan --explain", "Runs discovery + deterministic scan; prints risk-ranked findings with score breakdowns."),
+        ("cloudsec scan --visualize <png> --graph-json <json>", "Exports the NetworkX attack graph image and attack paths as JSON."),
+        ("cloudsec fix --id <ID> [--yes]", "AI reasoning + safety validation, state snapshot, Boto3 fix, audit log."),
+        ("cloudsec fix-all [--yes]", "Remediates every supported finding in a single guarded run."),
+        ("cloudsec rollback --id <ID> | --last", "Restores the exact pre-remediation configuration from the audit trail."),
+        ("cloudsec verify / cloudsec report", "Delta rescan to confirm resolution; export JSON / Markdown / HTML report.")
     ]
     for c_name, c_desc in cli_cmds:
         p = tf_l.add_paragraph()
@@ -1224,7 +1224,7 @@ Only when the vulnerability is confirmed absent from the delta scan does the sys
 
     add_notes(s17, """
 Component 11 is our Rich Command Line Interface.
-We used Typer and Rich to build an intuitive terminal interface.
+We used Click and Rich to build an intuitive terminal interface.
 Commands are modular and self-documenting.
 The CLI formats tables with clear severity colors, renders attack paths, shows progress spinners during Boto3 calls, and prompts developers with clear yes/no confirmation gates before any change is applied.
     """)
@@ -1303,7 +1303,7 @@ This allows anyone to test and grade our project with 100% reproducibility.
     # ==========================================
     s19 = prs.slides.add_slide(blank_layout)
     set_slide_background(s19)
-    add_header(s19, "Testing & Quality Assurance", "Comprehensive Automated Test Suite: 98 Passing Tests", "Rigorous validation across Unit, Graph, Safety, Remediation, and Rollback modules")
+    add_header(s19, "Testing & Quality Assurance", "Comprehensive Automated Test Suite: 100 Passing Tests", "Rigorous validation across Unit, Graph, Safety, Remediation, and Rollback modules")
 
     # Table of Test Modules
     table_shape = s19.shapes.add_table(7, 4, Inches(0.8), Inches(1.8), Inches(11.7), Inches(4.8))
@@ -1352,9 +1352,9 @@ This allows anyone to test and grade our project with 100% reproducibility.
 
     add_notes(s19, """
 Slide 19 highlights our testing and QA methodology.
-We built a comprehensive automated test suite consisting of 98 unit and integration tests.
+We built a comprehensive automated test suite consisting of 100 unit and integration tests.
 Every phase of development has dedicated tests—from initial rule detection to graph traversal, safety validation, Boto3 remediation, and rollback.
-All 98 tests pass cleanly in under 55 seconds.
+All 100 tests pass in about 15 seconds when run from the repository root with LocalStack running (98 run offline without LocalStack).
     """)
 
     # ==========================================
@@ -1365,15 +1365,15 @@ All 98 tests pass cleanly in under 55 seconds.
     add_header(s20, "Live Demonstration Walkthrough", "End-to-End Execution Sequence", "A reproducible 7-step walkthrough demonstrating the full closed loop")
 
     demo_steps = [
-        ("1. Test Suite Verification", "pytest -q", "Runs the complete 98-test automated test suite across all modules."),
+        ("1. Test Suite Verification", "pytest -q   (run from repo root)", "Runs all 100 automated tests, including live LocalStack pipeline tests."),
         ("2. Cloud Testbed Spin-Up", "docker compose up -d", "Starts LocalStack emulating AWS cloud services on localhost:4566."),
         ("3. Vulnerable Lab Setup", "python scripts/setup_vulnerable_lab.py", "Provisions realistic vulnerable S3, IAM, SG, and SQS cloud assets."),
-        ("4. Inventory Discovery & Scan", "python -m cloudsec_copilot.cli.main scan", "Discovers resources and displays risk-prioritized vulnerability findings."),
-        ("5. Attack Graph Generation", "python -m cloudsec_copilot.cli.main graph", "Renders multi-hop lateral movement paths to attack_graph.png."),
-        ("6. AI Contextual Reasoning", "python -m cloudsec_copilot.cli.main reason --id VULN-001", "AI LLM explains root cause, blast radius impact, and remediation steps."),
-        ("7. Guardrailed Remediation", "python -m cloudsec_copilot.cli.main fix --id VULN-001 --yes", "Passes safety validation, executes Boto3 fix, and records audit trail."),
-        ("8. Post-Fix Verification", "python -m cloudsec_copilot.cli.main verify", "Re-scans cloud state to mathematically verify vulnerability removal."),
-        ("9. Reversible Rollback", "python -m cloudsec_copilot.cli.main rollback --id VULN-001 --yes", "Restores pre-remediation configuration and verifies state reversal.")
+        ("4. Inventory Discovery & Scan", "python -m cloudsec_copilot.cli.main scan --explain", "Discovers resources and shows risk-ranked findings with score breakdown."),
+        ("5. Attack Graph Export", "python -m cloudsec_copilot.cli.main scan --visualize attack_graph.png", "Renders multi-hop lateral movement paths to attack_graph.png."),
+        ("6. Guarded Remediation", "python -m cloudsec_copilot.cli.main fix --id VULN-001", "AI plan + safety validation, approval prompt, Boto3 fix, audit trail."),
+        ("7. Post-Fix Verification", "python -m cloudsec_copilot.cli.main verify", "Re-scans cloud state to confirm the vulnerability is removed."),
+        ("8. Reversible Rollback", "python -m cloudsec_copilot.cli.main rollback --id VULN-001 --yes", "Restores pre-remediation configuration from the audit log."),
+        ("9. Security Report", "python -m cloudsec_copilot.cli.main report --format html --output report.html", "Exports the findings and remediation status as an HTML report.")
     ]
 
     # Render in a clean 3x3 or 2-column grid
@@ -1441,8 +1441,8 @@ We start by setting up the vulnerable lab, scanning the resources, generating th
         ("Stronger Attack-Path Analysis", "Marked 'In Progress'", "Full NetworkX multi-hop traversal, blast radius algorithm, graph export.", "100% DONE"),
         ("AI Safety Validation & Dry-Run", "Marked 'Remaining'", "AISafetyValidator with destructive action blocking and dry-run planning.", "100% DONE"),
         ("Rollback & Audit History", "Marked 'Remaining'", "State snapshotting, audit_log.json trail, one-command rollback.", "100% DONE"),
-        ("Reports & Rich CLI", "Marked 'Partial'", "Typer + Rich interactive CLI, scan_report.json, attack_graph.png.", "100% DONE"),
-        ("Comprehensive Testing", "21 tests passing at mid-term", "98 passing tests across Unit, Graph, Remediation, and Rollback.", "100% DONE"),
+        ("Reports & Rich CLI", "Marked 'Partial'", "Click + Rich interactive CLI, scan_report.json, attack_graph.png.", "100% DONE"),
+        ("Comprehensive Testing", "21 tests passing at mid-term", "100 passing tests across Unit, Graph, Remediation, Rollback, and live LocalStack.", "100% DONE"),
     ]
 
     for r_idx, row in enumerate(commitments):
@@ -1467,7 +1467,7 @@ We start by setting up the vulnerable lab, scanning the resources, generating th
     add_notes(s21, """
 In our earlier mid-term presentation (CloudSec.pdf), Slide 15 contained a list of items marked as 'remaining'.
 As you can see from this accountability matrix, every single one of those commitments has been fulfilled in full.
-We added the new vulnerability rules, upgraded the attack graph to a full multi-hop traversal engine, built the AI safety validator, implemented state snapshotting and rollback, expanded the CLI, and scaled our test suite from 21 tests to 98 passing tests.
+We added the new vulnerability rules, upgraded the attack graph to a full multi-hop traversal engine, built the AI safety validator, implemented state snapshotting and rollback, expanded the CLI, and scaled our test suite from 21 tests to 100 passing tests.
     """)
 
     # ==========================================
@@ -1550,7 +1550,7 @@ While our MVP is battle-tested on AWS and LocalStack, our future roadmap include
         "Attack Graph Context: Proved that graph-based lateral movement modeling uncovers toxic security combinations invisible to traditional scanners.",
         "Guardrailed Agentic AI: Demonstrated that LLM reasoning is viable for cloud remediation when paired with strict pre-execution safety filters.",
         "100% Reversible Assurance: Implemented state snapshotting and rollback to overcome developer hesitation around automated remediation.",
-        "Engineering Rigor: 98 automated tests, clean modular architecture, and fully open-source reproducible code on GitHub."
+        "Engineering Rigor: 100 automated tests, clean modular architecture, and fully open-source reproducible code on GitHub."
     ]
     for pt in concl_points:
         p = tf_l.add_paragraph()
