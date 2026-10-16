@@ -31,3 +31,5 @@ localstack_data/
 *.swp
 *.swo
 audit_log.json
+*.pdf
+*.pptx
