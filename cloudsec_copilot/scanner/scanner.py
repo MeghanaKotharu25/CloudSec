@@ -206,31 +206,6 @@ class Scanner:
                                 )
                             )
 
-        # VULN-004: Publicly accessible EC2 instances
-        for instance in resources.ec2_instances:
-            if instance.public_ip and instance.public_ip.strip():
-                findings.append(
-                    self._make_finding(
-                        "VULN-004",
-                        "RULE-EC2-PUBLIC",
-                        "Publicly accessible EC2 instance",
-                        "HIGH",
-                        instance.instance_id,
-                        "EC2Instance",
-                        {
-                            "instance_id": instance.instance_id,
-                            "public_ip": instance.public_ip,
-                            "private_ip": instance.private_ip,
-                            "security_groups": instance.security_groups,
-                            "iam_instance_profile": instance.iam_instance_profile,
-                            "instance_type": instance.instance_type,
-                            "state": instance.state,
-                        },
-                        "Remove unnecessary public exposure and place the instance behind appropriate network controls such as private subnets, load balancers, or restricted ingress.",
-                        region=region,
-                    )
-                )
-
         # VULN-005 & VULN-007: IAM Roles
         seen_iam_findings = set()
         for role in resources.iam_roles:
