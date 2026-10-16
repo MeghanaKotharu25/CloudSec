@@ -200,13 +200,15 @@ Eliminates alert fatigue by prioritizing reachable, exploitable assets over isol
 
 ---
 
-## 6. Quick Start & CLI Usage Guide
+## 6. Quick Start & Complete Workflow Guide
 
 ### Prerequisites
 - Python 3.11 or higher
 - Docker & Docker Compose (for LocalStack)
 
-### 1. Installation
+---
+
+### Step 1: Clone & Setup Environment
 
 ```bash
 # Clone repository
@@ -224,66 +226,129 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Launch LocalStack & Seed Vulnerable Lab
+---
+
+### Step 2: Start LocalStack (Docker)
+
+Launch the isolated AWS emulator container in the background:
 
 ```bash
-# Start LocalStack container in background
 docker compose up -d
+```
+*LocalStack runs on `http://localhost:4566`, providing emulated S3, IAM, EC2, Security Groups, SQS, and RDS APIs.*
 
-# Seed realistic vulnerable enterprise infrastructure
+---
+
+### Step 3: Seed Vulnerable Cloud Infrastructure
+
+Provision realistic multi-resource misconfigurations (public S3 bucket, open SG 0.0.0.0/0, admin IAM role, permissive SQS queue, and stale keys):
+
+```bash
 python scripts/setup_vulnerable_lab.py
 ```
 
-### 3. Run Automated Tests
+---
 
-> Run pytest from the **repository root** (not from `scripts/`), otherwise no tests are collected.
+### Step 4: Run Automated Tests
+
+> **Note**: Always execute `pytest` from the **repository root** so that the test discovery engine collects all test modules.
 
 ```bash
-# Full suite (100 tests) - requires LocalStack running for the 2 live tests
+# Run all 100 unit, graph, remediation, and live LocalStack tests:
 pytest -q
-
-# Offline suite (98 tests) - skips the 2 live LocalStack tests
-pytest -q -k "not test_demo_pipeline_end_to_end and not test_21_live_localstack_closed_loop_pipeline"
 ```
 
-### 4. CLI Command Reference
+---
 
-#### Discover & Scan
+### Step 5: Discover Resources, Scan Misconfigurations & Rank Risks
+
+Execute cloud discovery and deterministic scanning:
+
 ```bash
+# Standard scan with styled Rich tables and contextual risk scores (0-10):
+python -m cloudsec_copilot.cli.main scan
+
+# Detailed scan with mathematical risk score formula breakdowns:
 python -m cloudsec_copilot.cli.main scan --explain
 ```
-*Discovers resources and prints findings ranked by risk score, with score breakdowns.*
 
-#### Scan + Export Attack Graph
+---
+
+### Step 6: Construct Attack Graph & Trace Lateral Paths
+
+Build the multi-hop attack graph, compute blast radius, and export the visualization and JSON topology:
+
 ```bash
 python -m cloudsec_copilot.cli.main scan --visualize attack_graph.png --graph-json attack_graph.json
 ```
-*Saves the attack graph image and the graph topology/attack paths as JSON.*
+- **`attack_graph.png`**: Visual graph rendered via NetworkX and Matplotlib showing entry points (`0.0.0.0/0`) reaching crown jewels.
+- **`attack_graph.json`**: Structured node/edge adjacency list and detected attack paths.
 
-#### Guarded Remediation Execution
+---
+
+### Step 7: Remediate Vulnerabilities
+
+Remediation triggers the AI planning engine, validates safety guardrails, captures pre-execution state snapshots, and applies Boto3 fixes.
+
+#### Option A: Remediate a Single Vulnerability (with Interactive Approval)
+```bash
+python -m cloudsec_copilot.cli.main fix --id VULN-001
+```
+*Prompts the user with `[y/N]` approval before modifying cloud infrastructure.*
+
+#### Option B: Remediate a Single Vulnerability (Auto-Approve)
 ```bash
 python -m cloudsec_copilot.cli.main fix --id VULN-001 --yes
 ```
-*Validates safety gate, snapshots pre-change state, applies Boto3 fix, and logs to `audit_log.json`.*
 
-#### Post-Remediation Verification
+#### Option C: Remediate All Detected Vulnerabilities at Once
+```bash
+python -m cloudsec_copilot.cli.main fix-all --yes
+```
+*Applies verified Boto3 fixes across all remediable findings in one execution, recording each action to `audit_log.json`.*
+
+---
+
+### Step 8: Post-Remediation Verification
+
+Re-scan the cloud environment post-fix to mathematically confirm that vulnerabilities are removed:
+
 ```bash
 python -m cloudsec_copilot.cli.main verify
 ```
-*Re-scans target resource to mathematically prove vulnerability removal.*
+*Performs a delta rescan against the previous snapshot and verifies that resolved findings no longer persist.*
 
-#### Safe Rollback
+---
+
+### Step 9: Safe Reversible Rollback
+
+Restore the exact pre-remediation configuration if an application requires the previous setting:
+
 ```bash
+# Rollback a specific finding by ID:
 python -m cloudsec_copilot.cli.main rollback --id VULN-001 --yes
-```
-*Restores pre-remediation configuration from audit log and verifies state reversal.*
 
-#### Fix All Findings / Generate Report
-```bash
-python -m cloudsec_copilot.cli.main fix-all --yes
-python -m cloudsec_copilot.cli.main report --format markdown --output scan_report.md
+# Or rollback the most recently applied remediation action:
+python -m cloudsec_copilot.cli.main rollback --last --yes
 ```
-*Remediates every supported finding in one run; exports a JSON, Markdown, or HTML report.*
+*Reads `original_state` from `audit_log.json`, executes reverse Boto3 calls, and verifies state restoration.*
+
+---
+
+### Step 10: Export Audit & Security Reports
+
+Export findings, attack graph summaries, and remediation history into compliance reports:
+
+```bash
+# Export Markdown report:
+python -m cloudsec_copilot.cli.main report --format markdown --output scan_report.md
+
+# Export HTML report:
+python -m cloudsec_copilot.cli.main report --format html --output scan_report.html
+
+# Export JSON report:
+python -m cloudsec_copilot.cli.main report --format json --output scan_report.json
+```
 
 ---
 
@@ -304,7 +369,7 @@ cloudsec_copilot/tests/test_phase3_remediation.py ....................   [ 85%]
 cloudsec_copilot/tests/test_security_pipeline.py ........                [ 93%]
 tests/test_discovery.py ......                                           [100%]
 
-============================ 100 passed in 14.92s =============================
+============================ 100 passed in 15.53s =============================
 ```
 
 ---
